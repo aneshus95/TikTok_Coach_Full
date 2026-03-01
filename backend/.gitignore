@@ -1,0 +1,85 @@
+# ========================================
+# Backend .gitignore
+# CRITICAL: Prevents sensitive files from being committed to Git
+# ========================================
+
+# Environment Variables (contains API keys!)
+.env
+.env.local
+.env.production
+.env.*.local
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environment
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# Flask
+instance/
+.webassets-cache
+.pytest_cache/
+
+# Uploads (user data - don't commit to Git!)
+uploads/
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.webm
+*.m4v
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs
+*.log
+logs/
+
+# Database (if you add one later)
+*.db
+*.sqlite
+*.sqlite3
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Security
+*.pem
+*.key
+*.cert
+
+# IMPORTANT:
+# - Never commit .env files (they contain your Google API key)
+# - Never commit uploads/ folder (user data, privacy concern)
+# - Always keep this .gitignore in your backend folder

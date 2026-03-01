@@ -1,0 +1,119 @@
+apply plugin: "com.android.application"
+apply plugin: "com.facebook.react"
+
+/**
+ * This is the configuration block to customize your React Native Android app.
+ */
+react {
+}
+
+/**
+ * Set this to true to create four separate APKs instead of one,
+ * one for each native architecture. This is useful if you don't
+ * use App Bundles (https://developer.android.com/guide/app-bundle/)
+ * and want to have separate APKs to upload to the Play Store.
+ */
+def enableSeparateBuildPerCPUArchitecture = false
+
+/**
+ * Set this to true to Run Proguard on Release builds to minify the Java bytecode.
+ * IMPORTANT: Set to TRUE for Play Store release!
+ */
+def enableProguardInReleaseBuilds = true
+
+/**
+ * The preferred build flavor of JavaScriptCore (JSC)
+ */
+def jscFlavor = 'org.webkit:android-jsc:+'
+
+android {
+    ndkVersion rootProject.ext.ndkVersion
+
+    compileSdkVersion rootProject.ext.compileSdkVersion
+
+    namespace "com.tiktokviralcoach"
+
+    // FIX: Enable BuildConfig
+    buildFeatures {
+        buildConfig = true
+    }
+
+    defaultConfig {
+        applicationId "com.tiktokviralcoach"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+
+        // IMPORTANT: Increment these for each Play Store release
+        versionCode 1          // Integer - increment by 1 for each release (1, 2, 3...)
+        versionName "1.0.0"    // String - user-facing version (1.0.0, 1.0.1, 1.1.0...)
+
+        // react-native-iap: select Google Play variant (not Amazon)
+        missingDimensionStrategy 'store', 'play'
+    }
+
+    signingConfigs {
+        debug {
+            storeFile file('debug.keystore')
+            storePassword 'android'
+            keyAlias 'androiddebugkey'
+            keyPassword 'android'
+        }
+        release {
+            def localProps = new Properties()
+            def localPropsFile = rootProject.file('local.properties')
+            if (localPropsFile.exists()) {
+                localProps.load(new FileInputStream(localPropsFile))
+            }
+
+            def storeFilePath = localProps.getProperty('MYAPP_RELEASE_STORE_FILE',
+                project.hasProperty('MYAPP_RELEASE_STORE_FILE') ? MYAPP_RELEASE_STORE_FILE : null)
+
+            if (storeFilePath != null) {
+                storeFile file(storeFilePath)
+                storePassword localProps.getProperty('MYAPP_RELEASE_STORE_PASSWORD',
+                    project.hasProperty('MYAPP_RELEASE_STORE_PASSWORD') ? MYAPP_RELEASE_STORE_PASSWORD : '')
+                keyAlias localProps.getProperty('MYAPP_RELEASE_KEY_ALIAS',
+                    project.hasProperty('MYAPP_RELEASE_KEY_ALIAS') ? MYAPP_RELEASE_KEY_ALIAS : '')
+                keyPassword localProps.getProperty('MYAPP_RELEASE_KEY_PASSWORD',
+                    project.hasProperty('MYAPP_RELEASE_KEY_PASSWORD') ? MYAPP_RELEASE_KEY_PASSWORD : '')
+            }
+        }
+    }
+
+    buildTypes {
+        debug {
+            signingConfig signingConfigs.debug
+        }
+        release {
+            // IMPORTANT: Use release signing for Play Store
+            signingConfig signingConfigs.release
+            minifyEnabled enableProguardInReleaseBuilds
+            proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
+            
+            // Shrink resources to reduce APK size
+            shrinkResources true
+        }
+    }
+}
+
+dependencies {
+    // The version of react-native is set by the React Native Gradle Plugin
+    implementation("com.facebook.react:react-android")
+
+    // Google Play Billing (for react-native-iap subscriptions)
+    implementation("com.android.billingclient:billing:6.0.1")
+
+    debugImplementation("com.facebook.flipper:flipper:${FLIPPER_VERSION}")
+    debugImplementation("com.facebook.flipper:flipper-network-plugin:${FLIPPER_VERSION}") {
+        exclude group:'com.squareup.okhttp3', module:'okhttp'
+    }
+
+    debugImplementation("com.facebook.flipper:flipper-fresco-plugin:${FLIPPER_VERSION}")
+    if (hermesEnabled.toBoolean()) {
+        implementation("com.facebook.react:hermes-android")
+    } else {
+        implementation jscFlavor
+    }
+}
+
+apply from: file("../../node_modules/react-native/node_modules/@react-native-community/cli-platform-android/native_modules.gradle"); applyNativeModulesAppBuildGradle(project)

@@ -1,0 +1,5 @@
+RAW LENGTH: 97
+RAW REPR: 'Starting from this exact frame as the first frame, continuing as a smooth video, camera locked at'
+
+RAW TEXT:
+Starting from this exact frame as the first frame, continuing as a smooth video, camera locked at

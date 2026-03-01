@@ -1,0 +1,26 @@
+text length: 84
+candidates: [Candidate(
+  content=Content(
+    parts=[
+      Part(
+        text='Starting from this exact frame as the first frame, continuing as a smooth video, the',
+        thought_signature=b'\x12\xa4\x0f\n\xa1\x0f\x01\xbe>\xf6\xfb\x82\x95C]^\x18\xeb\n\xee2g\x00\xdf\x96\xc8m\xc1\xdb\x08j\x19\x84\x13\xe1\xed\x10\x08\xac\xc0X\xda\x0c?\xe7\x08\xa1\xe4\xed\x98\x1e\x96)\xd1<+\x9b\xe3\xb1\x82\xbd\xfd\x18\xf5\x96#c\xb6\xc0P\xb4\x15\x0c\xe9\xcbm:\x81\x8d7_<\x08\x1f\xbb\xf9\xf5\xd5\xc2\xb7\xfb]\xb8\x8c\xe7\xa7^...'
+      ),
+    ],
+    role='model'
+  ),
+  finish_reason=<FinishReason.MAX_TOKENS: 'MAX_TOKENS'>,
+  index=0
+)]
+
+candidate 0:
+  finish_reason: FinishReason.MAX_TOKENS
+  safety_ratings: None
+  content parts: 1
+  part 0: 'Starting from this exact frame as the first frame, continuing as a smooth video, the'
+
+usage: cache_tokens_details=None cached_content_token_count=None candidates_token_count=17 candidates_tokens_details=None prompt_token_count=1498 prompt_tokens_details=[ModalityTokenCount(
+  modality=<MediaModality.TEXT: 'TEXT'>,
+  token_count=1498
+)] thoughts_token_count=479 tool_use_prompt_token_count=None tool_use_prompt_tokens_details=None total_token_count=1994 traffic_type=None
+system_prompt_length: 5911 chars

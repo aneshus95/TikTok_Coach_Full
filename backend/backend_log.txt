@@ -1,0 +1,609 @@
+
+[*] TikTok Viral Coach API v12.0.0
+[>] Upload folder   : D:\tiktok-final\backend\uploads
+[>] Google API Key  : True
+[>] Anthropic Key   : True
+[>] Gemini ready    : True
+[>] Claude ready    : True
+[>] ffmpeg ready    : True
+[>] Remotion URL    : http://localhost:3100
+[>] Port            : 5000
+
+ * Serving Flask app 'app'
+ * Debug mode: on
+WARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5000
+ * Running on http://10.0.0.59:5000
+Press CTRL+C to quit
+ * Restarting with stat
+ * Debugger is active!
+ * Debugger PIN: 630-611-215
+127.0.0.1 - - [26/Feb/2026 22:52:14] "GET /api/health HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 22:58:04] "POST /api/tools/smartcut HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 22:58:05] "GET /api/video/serve/smartcut_e3bc53a85a8fcc9e_1772168210.mp4 HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 22:58:07] "GET /api/video/serve/smartcut_e3bc53a85a8fcc9e_1772168210.mp4 HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 22:58:08] "GET /api/video/serve/smartcut_e3bc53a85a8fcc9e_1772168210.mp4 HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 22:58:09] "GET /api/video/serve/smartcut_e3bc53a85a8fcc9e_1772168210.mp4 HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 22:58:50] "GET /api/video/serve/smartcut_e3bc53a85a8fcc9e_1772168210.mp4 HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 22:58:51] "GET /api/video/serve/smartcut_e3bc53a85a8fcc9e_1772168210.mp4 HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 22:58:52] "GET /api/video/serve/smartcut_e3bc53a85a8fcc9e_1772168210.mp4 HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 22:58:53] "GET /api/video/serve/smartcut_e3bc53a85a8fcc9e_1772168210.mp4 HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 22:59:23] "GET /api/video/serve/smartcut_e3bc53a85a8fcc9e_1772168210.mp4 HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:00:23] "POST /api/tools/smartcut HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:00:24] "GET /api/video/serve/smartcut_0702f98f7e96f33b_1772168408.mp4 HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:00:26] "GET /api/video/serve/smartcut_0702f98f7e96f33b_1772168408.mp4 HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:00:27] "GET /api/video/serve/smartcut_0702f98f7e96f33b_1772168408.mp4 HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:00:28] "GET /api/video/serve/smartcut_0702f98f7e96f33b_1772168408.mp4 HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:00:28] "GET /api/video/serve/smartcut_0702f98f7e96f33b_1772168408.mp4 HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:00:28] "GET /api/video/serve/smartcut_0702f98f7e96f33b_1772168408.mp4 HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:00:29] "GET /api/video/serve/smartcut_0702f98f7e96f33b_1772168408.mp4 HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:00:58] "GET /api/video/serve/smartcut_0702f98f7e96f33b_1772168408.mp4 HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:00:58] "GET /api/video/serve/smartcut_0702f98f7e96f33b_1772168408.mp4 HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:00:58] "GET /api/video/serve/smartcut_0702f98f7e96f33b_1772168408.mp4 HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:01:00] "GET /api/video/serve/smartcut_0702f98f7e96f33b_1772168408.mp4 HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:01:01] "GET /api/video/serve/smartcut_0702f98f7e96f33b_1772168408.mp4 HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:01:01] "GET /api/video/serve/smartcut_0702f98f7e96f33b_1772168408.mp4 HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:01:30] "GET /api/video/serve/smartcut_0702f98f7e96f33b_1772168408.mp4 HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:01:31] "GET /api/video/serve/smartcut_0702f98f7e96f33b_1772168408.mp4 HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:01:31] "GET /api/video/serve/smartcut_0702f98f7e96f33b_1772168408.mp4 HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:01:31] "GET /api/video/serve/smartcut_0702f98f7e96f33b_1772168408.mp4 HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:01:31] "GET /api/video/serve/smartcut_0702f98f7e96f33b_1772168408.mp4 HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:01:32] "GET /api/video/serve/smartcut_0702f98f7e96f33b_1772168408.mp4 HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:02:03] "GET /api/video/serve/smartcut_0702f98f7e96f33b_1772168408.mp4 HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:02:03] "GET /api/video/serve/smartcut_0702f98f7e96f33b_1772168408.mp4 HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:02:04] "GET /api/video/serve/smartcut_0702f98f7e96f33b_1772168408.mp4 HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:02:04] "GET /api/video/serve/smartcut_0702f98f7e96f33b_1772168408.mp4 HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:02:05] "GET /api/video/serve/smartcut_0702f98f7e96f33b_1772168408.mp4 HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:02:06] "GET /api/video/serve/smartcut_0702f98f7e96f33b_1772168408.mp4 HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:02:37] "GET /api/video/serve/smartcut_0702f98f7e96f33b_1772168408.mp4 HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:02:38] "GET /api/video/serve/smartcut_0702f98f7e96f33b_1772168408.mp4 HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:02:38] "GET /api/video/serve/smartcut_0702f98f7e96f33b_1772168408.mp4 HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:02:38] "GET /api/video/serve/smartcut_0702f98f7e96f33b_1772168408.mp4 HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:02:39] "GET /api/video/serve/smartcut_0702f98f7e96f33b_1772168408.mp4 HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:02:39] "GET /api/video/serve/smartcut_0702f98f7e96f33b_1772168408.mp4 HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:03:09] "GET /api/video/serve/smartcut_0702f98f7e96f33b_1772168408.mp4 HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:03:10] "GET /api/video/serve/smartcut_0702f98f7e96f33b_1772168408.mp4 HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:03:10] "GET /api/video/serve/smartcut_0702f98f7e96f33b_1772168408.mp4 HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:03:12] "GET /api/video/serve/smartcut_0702f98f7e96f33b_1772168408.mp4 HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:03:12] "GET /api/video/serve/smartcut_0702f98f7e96f33b_1772168408.mp4 HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:03:13] "GET /api/video/serve/smartcut_0702f98f7e96f33b_1772168408.mp4 HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:03:43] "GET /api/video/serve/smartcut_0702f98f7e96f33b_1772168408.mp4 HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:04:58] "GET /api/video/serve/src_81ead055f051_34.mp4 HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:06:09] "POST /api/tools/captions HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:06:10] "GET /api/video/serve/captions_16d899792d4e536c_1772168647.mp4 HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:06:14] "GET /api/video/serve/captions_16d899792d4e536c_1772168647.mp4 HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:06:17] "GET /api/video/serve/captions_16d899792d4e536c_1772168647.mp4 HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:06:18] "GET /api/video/serve/captions_16d899792d4e536c_1772168647.mp4 HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:06:46] "GET /api/video/serve/captions_16d899792d4e536c_1772168647.mp4 HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:06:46] "GET /api/video/serve/captions_16d899792d4e536c_1772168647.mp4 HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:06:47] "GET /api/video/serve/captions_16d899792d4e536c_1772168647.mp4 HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:07:00] "GET /api/video/serve/captions_16d899792d4e536c_1772168647.mp4 HTTP/1.1" 200 -
+ * Detected change in 'D:\\tiktok-final\\backend\\app.py', reloading
+
+[*] TikTok Viral Coach API v12.0.0
+[>] Upload folder   : D:\tiktok-final\backend\uploads
+[>] Google API Key  : True
+[>] Anthropic Key   : True
+[>] Gemini ready    : True
+[>] Claude ready    : True
+[>] ffmpeg ready    : True
+[>] Remotion URL    : http://localhost:3100
+[>] Port            : 5000
+
+[TOOL] Smart Cut: 0 silences detected
+[TOOL] Smart Cut: uploading 10.4s video to Gemini...
+[TOOL] Smart Cut: Gemini identified 1 low-energy segments
+[OK] Smart Cut: 10.4s -> 8.5s (1 cuts, saved 1.9s)
+[TOOL] Smart Cut: 0 silences detected
+[TOOL] Smart Cut: uploading 10.4s video to Gemini...
+[TOOL] Smart Cut: Gemini identified 4 low-energy segments
+[OK] Smart Cut: 10.4s -> 4.9s (4 cuts, saved 5.5s)
+[TOOL] Captions: uploading video to Gemini for transcription...
+[TOOL] Captions: transcribed 34 words
+[EDIT] Source video dimensions: 720x1280
+[TOOL] Captions: rendering with Remotion (34 words, 10.4s, style=bold_centered)
+[OK] Captions complete: 34 words, style=bold_centered
+ * Restarting with stat
+ * Debugger is active!
+ * Debugger PIN: 630-611-215
+127.0.0.1 - - [26/Feb/2026 23:07:11] "GET /api/video/serve/captions_16d899792d4e536c_1772168647.mp4 HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:07:13] "GET /api/video/serve/captions_16d899792d4e536c_1772168647.mp4 HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:07:16] "GET /api/video/serve/captions_16d899792d4e536c_1772168647.mp4 HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:07:50] "GET /api/video/serve/captions_16d899792d4e536c_1772168647.mp4 HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:07:54] "GET /api/video/serve/captions_16d899792d4e536c_1772168647.mp4 HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:07:58] "GET /api/video/serve/captions_16d899792d4e536c_1772168647.mp4 HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:08:02] "GET /api/video/serve/captions_16d899792d4e536c_1772168647.mp4 HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:08:37] "GET /api/video/serve/captions_16d899792d4e536c_1772168647.mp4 HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:08:37] "GET /api/video/serve/captions_16d899792d4e536c_1772168647.mp4 HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:08:40] "GET /api/video/serve/captions_16d899792d4e536c_1772168647.mp4 HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:09:10] "GET /api/video/serve/captions_16d899792d4e536c_1772168647.mp4 HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:09:11] "GET /api/video/serve/captions_16d899792d4e536c_1772168647.mp4 HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:09:39] "GET /api/video/serve/captions_16d899792d4e536c_1772168647.mp4 HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:09:40] "GET /api/video/serve/captions_16d899792d4e536c_1772168647.mp4 HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:09:41] "GET /api/video/serve/captions_16d899792d4e536c_1772168647.mp4 HTTP/1.1" 200 -
+ * Detected change in 'D:\\tiktok-final\\backend\\app.py', reloading
+
+[*] TikTok Viral Coach API v12.0.0
+[>] Upload folder   : D:\tiktok-final\backend\uploads
+[>] Google API Key  : True
+[>] Anthropic Key   : True
+[>] Gemini ready    : True
+[>] Claude ready    : True
+[>] ffmpeg ready    : True
+[>] Remotion URL    : http://localhost:3100
+[>] Port            : 5000
+
+ * Restarting with stat
+ * Debugger is active!
+ * Debugger PIN: 630-611-215
+ * Detected change in 'D:\\tiktok-final\\backend\\app.py', reloading
+
+[*] TikTok Viral Coach API v12.0.0
+[>] Upload folder   : D:\tiktok-final\backend\uploads
+[>] Google API Key  : True
+[>] Anthropic Key   : True
+[>] Gemini ready    : True
+[>] Claude ready    : True
+[>] ffmpeg ready    : True
+[>] Remotion URL    : http://localhost:3100
+[>] Port            : 5000
+
+ * Restarting with stat
+ * Debugger is active!
+ * Debugger PIN: 630-611-215
+127.0.0.1 - - [26/Feb/2026 23:10:10] "GET /api/video/serve/captions_16d899792d4e536c_1772168647.mp4 HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:10:10] "GET /api/video/serve/captions_16d899792d4e536c_1772168647.mp4 HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:10:11] "GET /api/video/serve/captions_16d899792d4e536c_1772168647.mp4 HTTP/1.1" 200 -
+ * Detected change in 'D:\\tiktok-final\\backend\\app.py', reloading
+
+[*] TikTok Viral Coach API v12.0.0
+[>] Upload folder   : D:\tiktok-final\backend\uploads
+[>] Google API Key  : True
+[>] Anthropic Key   : True
+[>] Gemini ready    : True
+[>] Claude ready    : True
+[>] ffmpeg ready    : True
+[>] Remotion URL    : http://localhost:3100
+[>] Port            : 5000
+
+ * Restarting with stat
+ * Debugger is active!
+ * Debugger PIN: 630-611-215
+ * Detected change in 'D:\\tiktok-final\\backend\\app.py', reloading
+
+[*] TikTok Viral Coach API v12.0.0
+[>] Upload folder   : D:\tiktok-final\backend\uploads
+[>] Google API Key  : True
+[>] Anthropic Key   : True
+[>] Gemini ready    : True
+[>] Claude ready    : True
+[>] ffmpeg ready    : True
+[>] Remotion URL    : http://localhost:3100
+[>] Port            : 5000
+
+ * Restarting with stat
+ * Debugger is active!
+ * Debugger PIN: 630-611-215
+ * Detected change in 'D:\\tiktok-final\\backend\\app.py', reloading
+
+[*] TikTok Viral Coach API v12.0.0
+[>] Upload folder   : D:\tiktok-final\backend\uploads
+[>] Google API Key  : True
+[>] Anthropic Key   : True
+[>] Gemini ready    : True
+[>] Claude ready    : True
+[>] ffmpeg ready    : True
+[>] Remotion URL    : http://localhost:3100
+[>] Port            : 5000
+
+ * Restarting with stat
+ * Debugger is active!
+ * Debugger PIN: 630-611-215
+127.0.0.1 - - [26/Feb/2026 23:10:37] "GET /api/video/serve/captions_16d899792d4e536c_1772168647.mp4 HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:10:38] "GET /api/video/serve/captions_16d899792d4e536c_1772168647.mp4 HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:11:02] "GET /api/video/serve/captions_16d899792d4e536c_1772168647.mp4 HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:11:08] "GET /api/video/serve/captions_16d899792d4e536c_1772168647.mp4 HTTP/1.1" 206 -
+127.0.0.1 - - [26/Feb/2026 23:11:12] "GET /api/video/serve/captions_16d899792d4e536c_1772168647.mp4 HTTP/1.1" 206 -
+127.0.0.1 - - [26/Feb/2026 23:12:09] "POST /api/scrape/start HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:12:39] "POST /api/video/upload HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:12:40] "POST /api/coaching/generate HTTP/1.1" 200 -
+ * Detected change in 'D:\\tiktok-final\\backend\\app.py', reloading
+
+[*] TikTok Viral Coach API v12.0.0
+[>] Upload folder   : D:\tiktok-final\backend\uploads
+[>] Google API Key  : True
+[>] Anthropic Key   : True
+[>] Gemini ready    : True
+[>] Claude ready    : True
+[>] ffmpeg ready    : True
+[>] Remotion URL    : http://localhost:3100
+[>] Port            : 5000
+
+
+============================================================
+[>] UPLOAD & ANALYSIS
+============================================================
+[OK] Saved: 4.22MB
+[>] 34.mp4 | video/mp4 | 4.22MB
+[OUT] Uploading to Gemini...
+[OK] Uploaded in 1.6s - waiting for processing...
+[OK] Processed in 2.2s
+[>] Running elite prompt...
+[OK] Done in 17.4s | total 21.2s
+[OK] Duration: 11s
+[>] Extracting timestamps...
+[OK] JSON parsed
+[>] Take: This video is high-quality aesthetic but low-strategy. It functions as a standard 'pretty girl + dog' clip, which has a low ceiling in the underground music niche because it lacks 'aura' or a discovery hook. It will plateau at 5k-10k views unless it's repositioned as a 'vibe check' or song discovery piece.
+[>] Fix: The lack of a 'Curiosity Gap.' You're playing an underground track but giving the viewer no reason to engage with the music or the creator's taste. You need a text hook that forces a choice or a question in the viewer's mind.
+   [OK] 0s: The Hook Phase | 2 issues, 6 fixes
+   [OK] 5s: The Engagement Pivot | 2 issues, 6 fixes
+[OK] Extracted 2 timestamps
+[OK] Done | ID: analysis_1772169159 | 11s | 2 timestamps
+============================================================
+
+ * Restarting with stat
+ * Debugger is active!
+ * Debugger PIN: 630-611-215
+ * Detected change in 'D:\\tiktok-final\\backend\\app.py', reloading
+
+[*] TikTok Viral Coach API v12.0.0
+[>] Upload folder   : D:\tiktok-final\backend\uploads
+[>] Google API Key  : True
+[>] Anthropic Key   : True
+[>] Gemini ready    : True
+[>] Claude ready    : True
+[>] ffmpeg ready    : True
+[>] Remotion URL    : http://localhost:3100
+[>] Port            : 5000
+
+ * Restarting with stat
+ * Debugger is active!
+ * Debugger PIN: 630-611-215
+ * Detected change in 'D:\\tiktok-final\\backend\\app.py', reloading
+
+[*] TikTok Viral Coach API v12.0.0
+[>] Upload folder   : D:\tiktok-final\backend\uploads
+[>] Google API Key  : True
+[>] Anthropic Key   : True
+[>] Gemini ready    : True
+[>] Claude ready    : True
+[>] ffmpeg ready    : True
+[>] Remotion URL    : http://localhost:3100
+[>] Port            : 5000
+
+ * Restarting with stat
+ * Debugger is active!
+ * Debugger PIN: 630-611-215
+ * Detected change in 'D:\\tiktok-final\\backend\\app.py', reloading
+
+[*] TikTok Viral Coach API v12.0.0
+[>] Upload folder   : D:\tiktok-final\backend\uploads
+[>] Google API Key  : True
+[>] Anthropic Key   : True
+[>] Gemini ready    : True
+[>] Claude ready    : True
+[>] ffmpeg ready    : True
+[>] Remotion URL    : http://localhost:3100
+[>] Port            : 5000
+
+ * Restarting with stat
+ * Debugger is active!
+ * Debugger PIN: 630-611-215
+127.0.0.1 - - [26/Feb/2026 23:16:10] "POST /api/scrape/start HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:16:47] "POST /api/video/upload HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:16:47] "POST /api/coaching/generate HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:17:50] "POST /api/scrape/start HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:18:32] "POST /api/video/upload HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:18:32] "POST /api/coaching/generate HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:20:08] "POST /api/scrape/start HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:21:06] "POST /api/video/upload HTTP/1.1" 200 -
+127.0.0.1 - - [26/Feb/2026 23:21:06] "POST /api/coaching/generate HTTP/1.1" 200 -
+ * Detected change in 'D:\\tiktok-final\\backend\\app.py', reloading
+
+[*] TikTok Viral Coach API v12.0.0
+[>] Upload folder   : D:\tiktok-final\backend\uploads
+[>] Google API Key  : True
+[>] Anthropic Key   : True
+[>] Gemini ready    : True
+[>] Claude ready    : True
+[>] ffmpeg ready    : True
+[>] Remotion URL    : http://localhost:3100
+[>] Port            : 5000
+
+
+============================================================
+[>] UPLOAD & ANALYSIS
+============================================================
+[OK] Saved: 4.22MB
+[>] 34.mp4 | video/mp4 | 4.22MB
+[OUT] Uploading to Gemini...
+[OK] Uploaded in 1.8s - waiting for processing...
+[OK] Processed in 2.1s
+[>] Running elite prompt...
+[OK] Done in 20.9s | total 24.9s
+[OK] Duration: 10s
+[>] Extracting timestamps...
+[OK] JSON parsed
+[>] Take: This video has high visual retention but zero 'Value Signal.' In the Underground music niche, aesthetics alone aren't enough to trigger the algorithm's 'Massive Push' phase. It lacks a reason for a viewer to do anything other than scroll past. To go viral, it needs to lean into the 'Opium/Aesthetic' subculture through text-based relatable triggers.
+[>] Fix: The 'Passive Consumption' trap. There is no Hook or 'Open Loop' at the start. The viewer isn't waiting for a payoff, so they have no reason to rewatch or comment.
+   [OK] 0s: The Scroll-Stop Hook | 2 issues, 4 fixes
+   [OK] 4s: Retention Mid-Roll | 2 issues, 4 fixes
+   [OK] 9s: The Loop Transition | 2 issues, 4 fixes
+[OK] Extracted 3 timestamps
+[OK] Done | ID: analysis_1772169407 | 10s | 3 timestamps
+============================================================
+
+
+============================================================
+[>] UPLOAD & ANALYSIS
+============================================================
+[OK] Saved: 4.22MB
+[>] 34.mp4 | video/mp4 | 4.22MB
+[OUT] Uploading to Gemini...
+[OK] Uploaded in 2.0s - waiting for processing...
+[OK] Processed in 2.3s
+[>] Running elite prompt...
+[OK] Done in 30.0s | total 34.3s
+[OK] Duration: 10s
+[>] Extracting timestamps...
+[OK] JSON parsed
+[>] Take: Low viral potential in the Underground music niche as it currently stands. It feels like a generic lifestyle clip rather than 'niche-coded' content. Underground fans value 'vibe' and exclusivity; this is too polished and lacks a narrative hook or aesthetic grit that triggers the 'I need to know this song/creator' response.
+[>] Fix: The lack of a 'curiosity gap.' You need a text overlay or a visual sync that forces the viewer to engage with the music or the specific 'aesthetic' being projected.
+   [OK] 0s: The Hook Phase | 2 issues, 6 fixes
+   [OK] 4s: The Beat Drop / Transition | 2 issues, 6 fixes
+   [OK] 8s: The Outro / Loop | 2 issues, 6 fixes
+[OK] Extracted 3 timestamps
+[OK] Done | ID: analysis_1772169512 | 10s | 3 timestamps
+============================================================
+
+
+============================================================
+[>] UPLOAD & ANALYSIS
+============================================================
+[OK] Saved: 18.23MB
+[>] 36.mp4 | video/mp4 | 18.23MB
+[OUT] Uploading to Gemini...
+[OK] Uploaded in 3.0s - waiting for processing...
+[OK] Processed in 8.5s
+[>] Running elite prompt...
+[OK] Done in 35.4s | total 46.9s
+[OK] Duration: 151s
+[>] Extracting timestamps...
+[OK] JSON parsed
+[>] Take: This video has mid-tier viral potential. The creator is high-energy and articulate, which is great for retention, but 2:31 is an eternity in the GRWM niche unless there's a single, high-stakes story. The current structure is a 'brain dump' rather than a 'storytime,' which hurts completion rates because the audience doesn't know what they're waiting to hear.
+[>] Fix: The hook. 'Get ready with me for school' is a 2021 hook. In the current algorithm, you need to open with the most controversial or relatable thought from the 151-second duration to stop the scroll.
+   [OK] 0s: The Generic Hook | 2 issues, 6 fixes
+   [OK] 25s: Private Story Rant | 2 issues, 4 fixes
+   [OK] 51s: The Apple Alarm Pivot | 2 issues, 4 fixes
+   [OK] 82s: Accountability & Egos | 2 issues, 4 fixes
+   [OK] 148s: The Weak Outro | 2 issues, 4 fixes
+[OK] Extracted 5 timestamps
+[OK] Done | ID: analysis_1772169666 | 151s | 5 timestamps
+============================================================
+
+ * Restarting with stat
+ * Debugger is active!
+ * Debugger PIN: 630-611-215
+ * Detected change in 'D:\\tiktok-final\\backend\\app.py', reloading
+
+[*] TikTok Viral Coach API v12.0.0
+[>] Upload folder   : D:\tiktok-final\backend\uploads
+[>] Google API Key  : True
+[>] Anthropic Key   : True
+[>] Gemini ready    : True
+[>] Claude ready    : True
+[>] ffmpeg ready    : True
+[>] Remotion URL    : http://localhost:3100
+[>] Port            : 5000
+
+ * Restarting with stat
+ * Debugger is active!
+ * Debugger PIN: 630-611-215
+ * Detected change in 'D:\\tiktok-final\\backend\\app.py', reloading
+
+[*] TikTok Viral Coach API v12.0.0
+[>] Upload folder   : D:\tiktok-final\backend\uploads
+[>] Google API Key  : True
+[>] Anthropic Key   : True
+[>] Gemini ready    : True
+[>] Claude ready    : True
+[>] ffmpeg ready    : True
+[>] Remotion URL    : http://localhost:3100
+[>] Port            : 5000
+
+ * Restarting with stat
+ * Debugger is active!
+ * Debugger PIN: 630-611-215
+ * Detected change in 'D:\\tiktok-final\\backend\\app.py', reloading
+
+[*] TikTok Viral Coach API v12.0.0
+[>] Upload folder   : D:\tiktok-final\backend\uploads
+[>] Google API Key  : True
+[>] Anthropic Key   : True
+[>] Gemini ready    : True
+[>] Claude ready    : True
+[>] ffmpeg ready    : True
+[>] Remotion URL    : http://localhost:3100
+[>] Port            : 5000
+
+ * Restarting with stat
+ * Debugger is active!
+ * Debugger PIN: 630-611-215
+ * Detected change in 'D:\\tiktok-final\\backend\\app.py', reloading
+
+[*] TikTok Viral Coach API v12.0.0
+[>] Upload folder   : D:\tiktok-final\backend\uploads
+[>] Google API Key  : True
+[>] Anthropic Key   : True
+[>] Gemini ready    : True
+[>] Claude ready    : True
+[>] ffmpeg ready    : True
+[>] Remotion URL    : http://localhost:3100
+[>] Port            : 5000
+
+ * Restarting with stat
+ * Debugger is active!
+ * Debugger PIN: 630-611-215
+ * Detected change in 'D:\\tiktok-final\\backend\\app.py', reloading
+
+[*] TikTok Viral Coach API v12.0.0
+[>] Upload folder   : D:\tiktok-final\backend\uploads
+[>] Google API Key  : True
+[>] Anthropic Key   : True
+[>] Gemini ready    : True
+[>] Claude ready    : True
+[>] ffmpeg ready    : True
+[>] Remotion URL    : http://localhost:3100
+[>] Port            : 5000
+
+ * Restarting with stat
+ * Debugger is active!
+ * Debugger PIN: 630-611-215
+ * Detected change in 'D:\\tiktok-final\\backend\\app.py', reloading
+[DB] No DATABASE_URL — using in-memory storage (dev only)
+
+[*] TikTok Viral Coach API v12.0.0
+[>] Upload folder   : D:\tiktok-final\backend\uploads
+[>] Google API Key  : True
+[>] Anthropic Key   : True
+[>] Gemini ready    : True
+[>] Claude ready    : True
+[>] ffmpeg ready    : True
+[>] Remotion URL    : http://localhost:3100
+[>] Port            : 5000
+
+ * Restarting with stat
+ * Debugger is active!
+ * Debugger PIN: 630-611-215
+ * Detected change in 'D:\\tiktok-final\\backend\\app.py', reloading
+[DB] No DATABASE_URL — using in-memory storage (dev only)
+
+[*] TikTok Viral Coach API v12.0.0
+[>] Upload folder   : D:\tiktok-final\backend\uploads
+[>] Google API Key  : True
+[>] Anthropic Key   : True
+[>] Gemini ready    : True
+[>] Claude ready    : True
+[>] ffmpeg ready    : True
+[>] Remotion URL    : http://localhost:3100
+[>] Port            : 5000
+
+ * Restarting with stat
+ * Debugger is active!
+ * Debugger PIN: 630-611-215
+ * Detected change in 'D:\\tiktok-final\\backend\\app.py', reloading
+[DB] No DATABASE_URL — using in-memory storage (dev only)
+
+[*] TikTok Viral Coach API v12.0.0
+[>] Upload folder   : D:\tiktok-final\backend\uploads
+[>] Google API Key  : True
+[>] Anthropic Key   : True
+[>] Gemini ready    : True
+[>] Claude ready    : True
+[>] ffmpeg ready    : True
+[>] Remotion URL    : http://localhost:3100
+[>] Port            : 5000
+
+ * Restarting with stat
+ * Debugger is active!
+ * Debugger PIN: 630-611-215
+ * Detected change in 'D:\\tiktok-final\\backend\\app.py', reloading
+[DB] No DATABASE_URL — using in-memory storage (dev only)
+
+[*] TikTok Viral Coach API v12.0.0
+[>] Upload folder   : D:\tiktok-final\backend\uploads
+[>] Google API Key  : True
+[>] Anthropic Key   : True
+[>] Gemini ready    : True
+[>] Claude ready    : True
+[>] ffmpeg ready    : True
+[>] Remotion URL    : http://localhost:3100
+[>] Port            : 5000
+
+ * Restarting with stat
+ * Debugger is active!
+ * Debugger PIN: 630-611-215
+ * Detected change in 'D:\\tiktok-final\\backend\\app.py', reloading
+[DB] No DATABASE_URL — using in-memory storage (dev only)
+
+[*] MIA - AI Content Coach API v1.0.0
+[>] Upload folder   : D:\tiktok-final\backend\uploads
+[>] Google API Key  : True
+[>] Anthropic Key   : True
+[>] Gemini ready    : True
+[>] Claude ready    : True
+[>] ffmpeg ready    : True
+[>] Remotion URL    : http://localhost:3100
+[>] Port            : 5000
+
+ * Restarting with stat
+ * Debugger is active!
+ * Debugger PIN: 630-611-215
+ * Detected change in 'D:\\tiktok-final\\backend\\app.py', reloading
+[DB] No DATABASE_URL — using in-memory storage (dev only)
+
+[*] MIA - AI Content Coach API v1.0.0
+[>] Upload folder   : D:\tiktok-final\backend\uploads
+[>] Google API Key  : True
+[>] Anthropic Key   : True
+[>] Gemini ready    : True
+[>] Claude ready    : True
+[>] ffmpeg ready    : True
+[>] Remotion URL    : http://localhost:3100
+[>] Port            : 5000
+
+ * Restarting with stat
+ * Debugger is active!
+ * Debugger PIN: 630-611-215
+ * Detected change in 'D:\\tiktok-final\\backend\\app.py', reloading
+[DB] No DATABASE_URL — using in-memory storage (dev only)
+
+[*] MIA - AI Content Coach API v1.0.0
+[>] Upload folder   : D:\tiktok-final\backend\uploads
+[>] Google API Key  : True
+[>] Anthropic Key   : True
+[>] Gemini ready    : True
+[>] Claude ready    : True
+[>] ffmpeg ready    : True
+[>] Remotion URL    : http://localhost:3100
+[>] Port            : 5000
+
+ * Restarting with stat
+ * Debugger is active!
+ * Debugger PIN: 630-611-215
+ * Detected change in 'D:\\tiktok-final\\backend\\app.py', reloading
+[DB] No DATABASE_URL — using in-memory storage (dev only)
+
+[*] MIA - AI Content Coach API v1.0.0
+[>] Upload folder   : D:\tiktok-final\backend\uploads
+[>] Google API Key  : True
+[>] Anthropic Key   : True
+[>] Gemini ready    : True
+[>] Claude ready    : True
+[>] ffmpeg ready    : True
+[>] Remotion URL    : http://localhost:3100
+[>] Port            : 5000
+
+ * Restarting with stat
+ * Debugger is active!
+ * Debugger PIN: 630-611-215
+ * Detected change in 'D:\\tiktok-final\\backend\\app.py', reloading
+[DB] No DATABASE_URL — using in-memory storage (dev only)
+
+[*] MIA - AI Content Coach API v1.0.0
+[>] Upload folder   : D:\tiktok-final\backend\uploads
+[>] Google API Key  : True
+[>] Anthropic Key   : True
+[>] Gemini ready    : True
+[>] Claude ready    : True
+[>] ffmpeg ready    : True
+[>] Remotion URL    : http://localhost:3100
+[>] Port            : 5000
+
+ * Restarting with stat
+ * Debugger is active!
+ * Debugger PIN: 630-611-215
+127.0.0.1 - - [27/Feb/2026 01:08:42] "GET /api/usage/status HTTP/1.1" 404 -
+127.0.0.1 - - [27/Feb/2026 01:09:02] "GET /api/usage/status HTTP/1.1" 404 -
+127.0.0.1 - - [27/Feb/2026 01:09:22] "GET /api/usage/status HTTP/1.1" 404 -

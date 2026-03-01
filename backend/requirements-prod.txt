@@ -1,0 +1,26 @@
+# Production Requirements - TikTok Viral Coach Backend
+# Install with: pip install -r requirements-prod.txt
+
+# Core Framework
+flask==3.0.0
+flask-cors==4.0.0
+werkzeug==3.0.1
+
+# AI / Google Gemini
+google-generativeai==0.3.2
+google-genai==1.0.0
+
+# Claude AI (overlay generation)
+anthropic>=0.40.0
+
+# Database
+psycopg2-binary==2.9.9
+
+# HTTP requests
+requests==2.31.0
+
+# Environment Variables
+python-dotenv==1.0.0
+
+# Production Server
+gunicorn==21.2.0

@@ -1,0 +1,13 @@
+flask==3.0.0
+flask-cors==4.0.0
+google-generativeai==0.3.2
+google-genai>=1.65.0
+python-dotenv==1.0.0
+selenium==4.16.0
+yt-dlp==2023.12.30
+undetected-chromedriver==3.5.4
+gunicorn==21.2.0
+werkzeug==3.0.1
+requests==2.31.0
+imageio-ffmpeg==0.5.1
+anthropic>=0.40.0

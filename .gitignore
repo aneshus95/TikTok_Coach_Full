@@ -1,0 +1,68 @@
+# Dependencies
+node_modules/
+__pycache__/
+
+# Environment variables
+.env
+.env.*
+
+# Build outputs
+TikTokViralCoach/android/app/build/
+TikTokViralCoach/android/build/
+TikTokViralCoach/android/.gradle/
+TikTokViralCoach/ios/Pods/
+.gradle-tmp/
+
+# Keystores (release)
+*.keystore
+!debug.keystore
+
+# APK files
+*.apk
+
+# Video/media test files
+*.mp4
+*.mov
+
+# Logs
+*.log
+server.log
+
+# Test output files
+test_*.json
+
+# Backend deploy (separate repo)
+backend-deploy/
+
+# Backend uploads & analyses
+backend/analyses/
+backend/uploads/
+
+# Remotion service build & output
+remotion-service/node_modules/
+remotion-service/dist/
+remotion-service/output/
+
+# Lottie test files at root
+boiling-pot-1.json
+boiling-pot-2.json
+prepare-food.json
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Metro
+.metro-health-check*
+
+# Claude
+.claude/
+
+# Misc
+*.hprof
+.cxx/

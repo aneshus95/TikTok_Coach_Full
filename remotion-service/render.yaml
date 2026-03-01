@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: crescio-remotion-renderer
+    runtime: docker
+    region: oregon
+    plan: starter
+    healthCheckPath: /health
+    envVars:
+      - key: PORT
+        value: "3100"
+      - key: INTERNAL_SECRET
+        sync: false
+      - key: NODE_OPTIONS
+        value: "--max-old-space-size=1536"

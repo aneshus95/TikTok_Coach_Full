@@ -1,0 +1,6 @@
+LENGTH: 717 chars
+FINISH: FinishReason.STOP
+THINKING: 620
+OUTPUT TOKENS: 140
+
+Starting from this exact frame as the first frame, continuing as a smooth video, the camera remains locked at eye level on a static tripod. The subject remains exactly as shown—identical face, expression, skin texture, body position, clothing, hair, and pose. Realistic, flickering orange and yellow flames emerge and pulse from the sides of the frame, casting a dynamic warm light onto the subject's skin and clothing. The environment, background, and set dressing remain unchanged from the original frame. Lighting is consistent with the original source, now augmented by the flickering glow of the fire. Same color grading, film grain, and depth of field as the original, with no artificial gloss or AI sharpening.
