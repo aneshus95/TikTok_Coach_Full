@@ -94,12 +94,12 @@ app.post('/render', requireAuth, async (req, res) => {
     if (msg.includes('Transform failed') || msg.includes('Unexpected')) {
       res.status(422).json({
         error: 'Code transpilation failed',
-        details: msg.substring(0, 500),
+        details: msg.substring(0, 2000),
       });
     } else {
       res.status(500).json({
         error: 'Render failed',
-        details: msg.substring(0, 500),
+        details: msg.substring(0, 2000),
       });
     }
   }

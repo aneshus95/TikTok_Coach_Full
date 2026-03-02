@@ -88,6 +88,17 @@ async function processQueue(): Promise<void> {
 
   const startTime = Date.now();
 
+  // Capture console.error/warn during render for detailed error context
+  const renderLogs: string[] = [];
+  const origError = console.error;
+  const origWarn = console.warn;
+  const logCapture = (...args: any[]) => {
+    const line = args.map(a => typeof a === 'string' ? a : String(a)).join(' ');
+    renderLogs.push(line);
+  };
+  console.error = (...args: any[]) => { logCapture(...args); origError(...args); };
+  console.warn = (...args: any[]) => { logCapture(...args); origWarn(...args); };
+
   try {
     if (!serveUrl) throw new Error('Bundle not ready');
 
@@ -136,9 +147,20 @@ async function processQueue(): Promise<void> {
     job.resolve(buffer);
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.error(`[RENDER-QUEUE] Render ${jobId} failed:`, msg);
-    job.reject(err instanceof Error ? err : new Error(msg));
+    origError(`[RENDER-QUEUE] Render ${jobId} failed:`, msg);
+
+    // Attach captured logs to error for self-correction context
+    const logContext = renderLogs
+      .filter(l => l.includes('Error') || l.includes('failed') || l.includes('volume') || l.includes('filter'))
+      .slice(-10)
+      .join('\n');
+    const fullMsg = logContext ? `${msg}\n\nDetailed logs:\n${logContext}` : msg;
+    job.reject(new Error(fullMsg));
   } finally {
+    // Restore console
+    console.error = origError;
+    console.warn = origWarn;
+
     // Cleanup temp file
     try {
       if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
