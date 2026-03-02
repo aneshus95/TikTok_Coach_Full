@@ -1,9 +1,15 @@
 import express from 'express';
+import fs from 'fs';
+import path from 'path';
 import {transpileTSX} from './transpile';
 import {initBundle, isReady, getQueueLength, getMemoryMB, enqueueRender} from './render-queue';
 
 const app = express();
 app.use(express.json({limit: '2mb'}));
+
+// Temp directory for source videos uploaded by the backend
+const SOURCES_DIR = path.join(__dirname, '..', 'temp-sources');
+if (!fs.existsSync(SOURCES_DIR)) fs.mkdirSync(SOURCES_DIR, {recursive: true});
 
 const PORT = parseInt(process.env.PORT || '3100', 10);
 const INTERNAL_SECRET = process.env.INTERNAL_SECRET || '';
@@ -27,6 +33,60 @@ app.get('/health', (_req, res) => {
     queueLength: getQueueLength(),
     memoryMB: getMemoryMB(),
   });
+});
+
+// Upload source video (backend sends compressed video before rendering)
+app.post('/upload-source', requireAuth, express.raw({type: ['video/*', 'application/octet-stream'], limit: '200mb'}), (req, res) => {
+  const filename = (req.headers['x-filename'] as string || `source_${Date.now()}.mp4`).replace(/[^a-zA-Z0-9._-]/g, '_');
+  const filePath = path.join(SOURCES_DIR, filename);
+  fs.writeFileSync(filePath, req.body);
+  const url = `http://localhost:${PORT}/sources/${filename}`;
+  console.log(`[SERVER] Source uploaded: ${filename} (${((req.body as Buffer).length / 1024 / 1024).toFixed(1)}MB)`);
+  res.json({url, filename});
+});
+
+// Serve uploaded source videos (used by OffthreadVideo during render)
+app.get('/sources/:filename', (req, res) => {
+  const safeName = req.params.filename.replace(/[^a-zA-Z0-9._-]/g, '_');
+  const filePath = path.join(SOURCES_DIR, safeName);
+  if (!fs.existsSync(filePath)) {
+    res.status(404).json({error: 'Source not found'});
+    return;
+  }
+  const stat = fs.statSync(filePath);
+  const fileSize = stat.size;
+  const range = req.headers.range;
+  if (range) {
+    const parts = range.replace(/bytes=/, '').split('-');
+    const start = parseInt(parts[0], 10);
+    const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+    const chunksize = end - start + 1;
+    const stream = fs.createReadStream(filePath, {start, end});
+    res.writeHead(206, {
+      'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+      'Accept-Ranges': 'bytes',
+      'Content-Length': chunksize,
+      'Content-Type': 'video/mp4',
+    });
+    stream.pipe(res);
+  } else {
+    res.writeHead(200, {
+      'Content-Length': fileSize,
+      'Content-Type': 'video/mp4',
+      'Accept-Ranges': 'bytes',
+    });
+    fs.createReadStream(filePath).pipe(res);
+  }
+});
+
+// Delete uploaded source after render completes
+app.delete('/sources/:filename', requireAuth, (req, res) => {
+  const safeName = req.params.filename.replace(/[^a-zA-Z0-9._-]/g, '_');
+  const filePath = path.join(SOURCES_DIR, safeName);
+  try {
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+  } catch { /* ignore */ }
+  res.json({ok: true});
 });
 
 // Main render endpoint
