@@ -129,6 +129,7 @@ async function processQueue(): Promise<void> {
       inputProps,
       imageFormat: 'jpeg',
       jpegQuality: 85,
+      enforceAudioTrack: true,
       concurrency: 1, // Limit to prevent OOM
       timeoutInMilliseconds: 3600000,
       onProgress: ({progress}: {progress: number}) => {
