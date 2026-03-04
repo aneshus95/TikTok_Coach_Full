@@ -5,6 +5,13 @@ import {transpileTSX} from './transpile';
 import {initBundle, isReady, getQueueLength, getMemoryMB, enqueueRender} from './render-queue';
 
 const app = express();
+app.use((_req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, X-Internal-Secret, X-Filename');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  if (_req.method === 'OPTIONS') { res.sendStatus(200); return; }
+  next();
+});
 app.use(express.json({limit: '2mb'}));
 
 // Temp directory for source videos uploaded by the backend
@@ -47,7 +54,7 @@ app.post('/upload-source', requireAuth, express.raw({type: ['video/*', 'applicat
 
 // Serve uploaded source videos (used by OffthreadVideo during render)
 app.get('/sources/:filename', (req, res) => {
-  const safeName = req.params.filename.replace(/[^a-zA-Z0-9._-]/g, '_');
+  const safeName = (req.params.filename as string).replace(/[^a-zA-Z0-9._-]/g, '_');
   const filePath = path.join(SOURCES_DIR, safeName);
   if (!fs.existsSync(filePath)) {
     res.status(404).json({error: 'Source not found'});
@@ -81,7 +88,7 @@ app.get('/sources/:filename', (req, res) => {
 
 // Delete uploaded source after render completes
 app.delete('/sources/:filename', requireAuth, (req, res) => {
-  const safeName = req.params.filename.replace(/[^a-zA-Z0-9._-]/g, '_');
+  const safeName = (req.params.filename as string).replace(/[^a-zA-Z0-9._-]/g, '_');
   const filePath = path.join(SOURCES_DIR, safeName);
   try {
     if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
