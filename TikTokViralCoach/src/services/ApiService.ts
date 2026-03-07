@@ -426,15 +426,7 @@ export const ApiService = {
   /** Poll Make Viral task status */
   async editorPollViral(taskId: string) {
     const res = await api.get(`/editor/make-viral/status/${taskId}`, {timeout: 15000});
-    return res.data; // { task_id, state, video_url?, edit_summary?, captions?, edit_plan?, error_message? }
-  },
-
-  /** Approve (or edit) the Make Viral plan → resume rendering */
-  async editorApproveViralPlan(taskId: string, editPlan?: any) {
-    const body: any = {};
-    if (editPlan) body.edit_plan = editPlan;
-    const res = await api.post(`/editor/make-viral/approve/${taskId}`, body, {timeout: 30000});
-    return res.data; // { task_id, state }
+    return res.data; // { task_id, state, video_url?, edit_summary?, captions?, error_message? }
   },
 
   // ──────────────────────────────────────────

@@ -72,7 +72,7 @@ type CaptionTimingMode = 'word' | 'phrase' | 'sentence' | 'single-pop';
 type CaptionFontStyle = 'bold-sans' | 'outlined' | 'neon' | 'classic' | 'minimal' | 'impact';
 type CaptionAnimation = 'none' | 'fade' | 'pop' | 'slide-up' | 'typewriter' | 'karaoke';
 type ActiveTool = 'none' | 'captions' | 'speed' | 'filters';
-type EditorState = 'select' | 'editor' | 'ai_processing' | 'ai_preview' | 'viral_processing' | 'viral_plan' | 'viral_preview';
+type EditorState = 'select' | 'editor' | 'ai_processing' | 'ai_preview' | 'viral_processing' | 'viral_preview';
 
 const TIMING_MODES: {key: CaptionTimingMode; label: string; desc: string}[] = [
   {key: 'word', label: 'Word by Word', desc: 'Each word highlights as spoken'},
@@ -178,7 +178,6 @@ export default function VideoEditorScreen({navigation}: any) {
   const [viralPreviewUrl, setViralPreviewUrl] = useState<string | null>(null);
   const [viralEditSummary, setViralEditSummary] = useState('');
   const [viralPreviewPlaying, setViralPreviewPlaying] = useState(false);
-  const [viralEditPlan, setViralEditPlan] = useState<any>(null);
 
   // ── Animations ──
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -539,17 +538,6 @@ export default function VideoEditorScreen({navigation}: any) {
         try {
           const status = await ApiService.editorPollViral(data.task_id);
 
-          if (status.state === 'PLAN_READY') {
-            if (viralCancelledRef.current) return;
-            setViralEditPlan(status.edit_plan);
-            setViralEditSummary(status.edit_summary || '');
-            if (Array.isArray(status.captions) && status.captions.length > 0) {
-              setCaptionWords(status.captions);
-            }
-            setEditorState('viral_plan');
-            return;
-          }
-
           if (status.state === 'SUCCEEDED') {
             if (viralCancelledRef.current) return;
             setViralPreviewUrl(status.video_url);
@@ -583,61 +571,6 @@ export default function VideoEditorScreen({navigation}: any) {
       if (viralCancelledRef.current) return;
       const msg = err?.response?.data?.error || err?.message || 'Something went wrong.';
       console.log('[MAKE_VIRAL] Failed:', msg, 'videoFilename:', videoFilename);
-      Alert.alert('Make Viral Failed', msg);
-      setEditorState('editor');
-    }
-  };
-
-  // ── Approve Viral Plan ──
-  const handleApproveViralPlan = async () => {
-    if (!viralTaskId) return;
-    setEditorState('viral_processing');
-    setViralStatus('Rendering viral edit...');
-
-    try {
-      await ApiService.editorApproveViralPlan(viralTaskId, viralEditPlan);
-
-      // Resume polling for render completion
-      const maxWait = 60 * 60 * 1000;
-      const start = Date.now();
-
-      while (Date.now() - start < maxWait) {
-        if (viralCancelledRef.current) return;
-        await new Promise(r => setTimeout(r, 5000));
-        if (viralCancelledRef.current) return;
-
-        try {
-          const status = await ApiService.editorPollViral(viralTaskId);
-
-          if (status.state === 'SUCCEEDED') {
-            if (viralCancelledRef.current) return;
-            setViralPreviewUrl(status.video_url);
-            setViralEditSummary(status.edit_summary || '');
-            if (Array.isArray(status.captions) && status.captions.length > 0) {
-              setCaptionWords(status.captions);
-              setCaptionEnabled(true);
-            }
-            setEditorState('viral_preview');
-            return;
-          }
-
-          if (status.state === 'FAILED') {
-            throw new Error(status.error_message || 'Rendering failed');
-          }
-
-          const statusMap: Record<string, string> = {
-            'RESEARCHING': 'Researching edit techniques...',
-            'RENDERING': 'Rendering viral edit...',
-          };
-          setViralStatus(statusMap[status.state] || 'Processing...');
-        } catch (pollErr: any) {
-          if (pollErr.message?.includes('failed')) throw pollErr;
-        }
-      }
-      throw new Error('Timed out');
-    } catch (err: any) {
-      if (viralCancelledRef.current) return;
-      const msg = err?.response?.data?.error || err?.message || 'Something went wrong.';
       Alert.alert('Make Viral Failed', msg);
       setEditorState('editor');
     }
@@ -1223,139 +1156,8 @@ export default function VideoEditorScreen({navigation}: any) {
     </View>
   );
 
-  // ── Helper: format seconds as mm:ss ──
-  const fmtTime = (s: number) => {
-    const m = Math.floor(s / 60);
-    const sec = Math.floor(s % 60);
-    return `${m}:${sec.toString().padStart(2, '0')}`;
-  };
 
-  // ── Render: Viral Plan Review state ──
-  const renderViralPlan = () => {
-    if (!viralEditPlan) return null;
-    const plan = viralEditPlan;
-
-    // Build a timeline of all edits sorted by timestamp
-    const timelineItems: {time: number; endTime?: number; icon: string; label: string; detail: string; color: string}[] = [];
-
-    // Hook trim
-    if (plan.hook_trim_start > 0) {
-      timelineItems.push({
-        time: 0, endTime: plan.hook_trim_start,
-        icon: '✂️', label: 'Hook Trim',
-        detail: `Trim first ${plan.hook_trim_start.toFixed(1)}s`,
-        color: '#FF6B6B',
-      });
-    }
-
-    // Zoom points
-    (plan.zoom_points || []).forEach((z: any, i: number) => {
-      timelineItems.push({
-        time: z.time, endTime: z.time + (z.duration || 0.5),
-        icon: '🔍', label: `Zoom ${i + 1}`,
-        detail: `${z.scale}x for ${z.duration}s`,
-        color: '#00D4FF',
-      });
-    });
-
-    // Speed sections
-    (plan.speed_sections || []).forEach((s: any, i: number) => {
-      timelineItems.push({
-        time: s.start, endTime: s.end,
-        icon: '⚡', label: `Speed ${i + 1}`,
-        detail: `${s.speed}x (${fmtTime(s.start)}–${fmtTime(s.end)})`,
-        color: '#FFD93D',
-      });
-    });
-
-    // Dead spots
-    (plan.dead_spots || []).forEach((d: any, i: number) => {
-      timelineItems.push({
-        time: d.start, endTime: d.end,
-        icon: d.action === 'cut' ? '🗑️' : '⏩', label: `Dead Spot ${i + 1}`,
-        detail: `${d.action === 'cut' ? 'Cut' : 'Speed 2x'} (${fmtTime(d.start)}–${fmtTime(d.end)})`,
-        color: d.action === 'cut' ? '#FF6B6B' : '#FFA07A',
-      });
-    });
-
-    // Sort by time
-    timelineItems.sort((a, b) => a.time - b.time);
-
-    return (
-      <View style={styles.planContainer}>
-        <Paragraph style={styles.sectionLabel}>EDIT PLAN REVIEW</Paragraph>
-
-        {/* Summary */}
-        <View style={styles.planSummaryBox}>
-          <Paragraph style={styles.planSummaryText}>
-            {plan.edit_summary || 'AI-optimized for viral engagement'}
-          </Paragraph>
-        </View>
-
-        {/* Style chips */}
-        <View style={styles.planChipRow}>
-          {plan.filter && plan.filter !== 'none' && (
-            <View style={[styles.planChip, {borderColor: '#A78BFA'}]}>
-              <Paragraph style={[styles.planChipText, {color: '#A78BFA'}]}>
-                🎨 {plan.filter}
-              </Paragraph>
-            </View>
-          )}
-          {plan.caption_style && (
-            <View style={[styles.planChip, {borderColor: '#00FFB3'}]}>
-              <Paragraph style={[styles.planChipText, {color: '#00FFB3'}]}>
-                💬 {plan.caption_style}
-              </Paragraph>
-            </View>
-          )}
-          {plan.caption_timing && (
-            <View style={[styles.planChip, {borderColor: '#00D4FF'}]}>
-              <Paragraph style={[styles.planChipText, {color: '#00D4FF'}]}>
-                ⏱️ {plan.caption_timing}
-              </Paragraph>
-            </View>
-          )}
-        </View>
-
-        {/* Timeline */}
-        <View style={styles.planTimeline}>
-          {timelineItems.length === 0 ? (
-            <Paragraph style={styles.planNoEdits}>No specific edits planned — will apply style and captions only.</Paragraph>
-          ) : (
-            timelineItems.map((item, idx) => (
-              <View key={idx} style={styles.planTimelineItem}>
-                <View style={styles.planTimelineDot}>
-                  <View style={[styles.planDot, {backgroundColor: item.color}]} />
-                  {idx < timelineItems.length - 1 && <View style={styles.planTimelineLine} />}
-                </View>
-                <View style={styles.planTimelineContent}>
-                  <View style={styles.planTimelineHeader}>
-                    <Paragraph style={styles.planTimelineTime}>{fmtTime(item.time)}</Paragraph>
-                    <Paragraph style={styles.planTimelineIcon}>{item.icon}</Paragraph>
-                    <Paragraph style={[styles.planTimelineLabel, {color: item.color}]}>{item.label}</Paragraph>
-                  </View>
-                  <Paragraph style={styles.planTimelineDetail}>{item.detail}</Paragraph>
-                </View>
-              </View>
-            ))
-          )}
-        </View>
-
-        {/* Action buttons */}
-        <View style={styles.planActions}>
-          <TouchableOpacity onPress={() => setEditorState('editor')} style={styles.rejectBtn}>
-            <Paragraph style={styles.rejectText}>CANCEL</Paragraph>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={handleApproveViralPlan}>
-            <LinearGradient colors={['#00D4FF', '#00FFB3']} style={styles.acceptBtn}>
-              <Paragraph style={styles.acceptText}>RENDER</Paragraph>
-            </LinearGradient>
-          </TouchableOpacity>
-        </View>
-      </View>
-    );
-  };
-
+  // Plan review removed — pipeline runs straight through
   // ── Render: Viral Processing state ──
   const renderViralProcessing = () => (
     <View style={styles.processingContainer}>
@@ -1625,7 +1427,6 @@ export default function VideoEditorScreen({navigation}: any) {
           {editorState === 'select' && renderSelect()}
           {editorState === 'editor' && renderEditor()}
           {/* AI Edit disabled for v1 launch */}
-          {editorState === 'viral_plan' && renderViralPlan()}
           {editorState === 'viral_processing' && renderViralProcessing()}
           {editorState === 'viral_preview' && renderViralPreview()}
         </Animated.View>
@@ -2149,42 +1950,5 @@ const styles = StyleSheet.create({
   viralSummaryLabel: {color: '#00FFB3', fontSize: 11, fontWeight: '700', letterSpacing: 0.5, marginBottom: 6},
   viralSummaryText: {color: '#CBD5E1', fontSize: 13, lineHeight: 20},
 
-  // Plan review
-  planContainer: {paddingHorizontal: 16, paddingTop: 8},
-  planSummaryBox: {
-    backgroundColor: '#0C1220',
-    borderWidth: 1,
-    borderColor: '#1E293B',
-    borderRadius: 10,
-    padding: 14,
-    marginBottom: 16,
-  },
-  planSummaryText: {color: '#CBD5E1', fontSize: 14, lineHeight: 20},
-  planChipRow: {flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16},
-  planChip: {
-    borderWidth: 1,
-    borderRadius: 16,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    backgroundColor: 'rgba(255,255,255,0.04)',
-  },
-  planChipText: {fontSize: 12, fontWeight: '600'},
-  planTimeline: {marginBottom: 24},
-  planTimelineItem: {flexDirection: 'row', minHeight: 52},
-  planTimelineDot: {width: 24, alignItems: 'center'},
-  planDot: {width: 10, height: 10, borderRadius: 5, marginTop: 4},
-  planTimelineLine: {width: 2, flex: 1, backgroundColor: '#1E293B', marginTop: 4},
-  planTimelineContent: {flex: 1, paddingLeft: 10, paddingBottom: 16},
-  planTimelineHeader: {flexDirection: 'row', alignItems: 'center', gap: 6},
-  planTimelineTime: {color: '#64748B', fontSize: 12, fontWeight: '600', fontVariant: ['tabular-nums']},
-  planTimelineIcon: {fontSize: 14},
-  planTimelineLabel: {fontSize: 13, fontWeight: '700'},
-  planTimelineDetail: {color: '#94A3B8', fontSize: 12, marginTop: 2},
-  planNoEdits: {color: '#64748B', fontSize: 13, fontStyle: 'italic', textAlign: 'center', paddingVertical: 20},
-  planActions: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: 12,
-    marginBottom: 20,
-  },
+  // Plan styles removed
 });
