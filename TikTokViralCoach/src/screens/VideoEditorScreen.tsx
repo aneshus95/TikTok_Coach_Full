@@ -1,20 +1,18 @@
 /**
- * VideoEditorScreen — AI Video Editor
+ * VideoEditorScreen — Interactive Segment-Based Video Editor
  *
- * User Journey:
+ * Features:
  *   1. Select   — Pick video from gallery
- *   2. Edit     — Describe your edit in plain language
- *   3. Generate — AI processes full video (progress indicator)
- *   4. Review   — Preview result: "Apply" / "Try Different Settings"
- *   5. Loop     — Back to Edit with updated video; stack more edits or download
- *
- * Key rules:
- *   - AI Edit processes the full video and replaces it directly (no stitching)
- *   - Edits stack: each applied edit permanently updates the video
- *   - Download always accessible on the main editing page
+ *   2. Edit     — Video with thumbnail filmstrip + drag handles
+ *   3. Tools    — Cut, Trim, AI Edit, Auto Captions, Speed, Filters
+ *   4. AI Edit  — Type prompt -> Gemini processes segment -> preview -> accept/reject
+ *   5. Auto Captions — Gemini transcribes -> pick timing/font/animation -> live preview
+ *   6. Speed Control — 0.5x to 3x per segment
+ *   7. Filters  — Color presets applied as overlay
+ *   8. Export   — Stitch all segments with effects into final video
  */
 
-import React, {useState, useRef, useEffect} from 'react';
+import React, {useState, useRef, useEffect, useCallback} from 'react';
 import {
   View,
   StyleSheet,
@@ -27,964 +25,1926 @@ import {
   Linking,
   Dimensions,
   Share,
+  Image,
+  PanResponder,
+  ActivityIndicator,
+  Text,
 } from 'react-native';
-import {Title, Paragraph, ActivityIndicator} from 'react-native-paper';
+import {Title, Paragraph} from 'react-native-paper';
 import LinearGradient from 'react-native-linear-gradient';
 import DocumentPicker from 'react-native-document-picker';
-import LoadingAnimation from '../components/LoadingAnimation';
 import Video from 'react-native-video';
 import {ApiService} from '../services/ApiService';
 
 const {width: SCREEN_WIDTH} = Dimensions.get('window');
+const FILMSTRIP_HEIGHT = 48;
+const FILMSTRIP_PADDING = 16;
+const FILMSTRIP_WIDTH = SCREEN_WIDTH - FILMSTRIP_PADDING * 2;
+const HANDLE_WIDTH = 14;
 
-type EditorState = 'select' | 'edit' | 'generating' | 'review' | 'error';
+// ── Interfaces ──
 
-type QuickToolType = 'aiedit';
-
-interface VideoFile {
-  uri: string;
-  name: string;
-  size: number;
-  type: string;
+interface Thumbnail {
+  time: number;
+  url: string;
 }
 
-interface AppliedEdit {
-  tool: string;
-  description: string;
+interface Segment {
+  id: string;
+  startTime: number;
+  endTime: number;
+  type: 'original' | 'edited';
+  editedFilename?: string;
+  editedUrl?: string;
+  prompt?: string;
+  speed?: number;
 }
+
+interface CaptionWord {
+  word: string;
+  start_time: number;
+  end_time: number;
+}
+
+// ── Presets ──
+
+type CaptionTimingMode = 'word' | 'phrase' | 'sentence' | 'single-pop';
+type CaptionFontStyle = 'bold-sans' | 'outlined' | 'neon' | 'classic' | 'minimal' | 'impact';
+type CaptionAnimation = 'none' | 'fade' | 'pop' | 'slide-up' | 'typewriter' | 'karaoke';
+type ActiveTool = 'none' | 'captions' | 'speed' | 'filters';
+type EditorState = 'select' | 'editor' | 'ai_processing' | 'ai_preview' | 'viral_processing' | 'viral_preview';
+
+const TIMING_MODES: {key: CaptionTimingMode; label: string; desc: string}[] = [
+  {key: 'word', label: 'Word by Word', desc: 'Each word highlights as spoken'},
+  {key: 'phrase', label: 'Phrase', desc: '3-5 words at a time'},
+  {key: 'sentence', label: 'Sentence', desc: 'Full sentence appears'},
+  {key: 'single-pop', label: 'Single Pop', desc: 'One big word at a time'},
+];
+
+const FONT_STYLES: {key: CaptionFontStyle; label: string; preview: any}[] = [
+  {key: 'bold-sans', label: 'Bold', preview: {fontWeight: '900' as const, color: '#FFFFFF', textShadowColor: 'rgba(0,0,0,0.8)', textShadowOffset: {width: 2, height: 2}, textShadowRadius: 4}},
+  {key: 'outlined', label: 'Outline', preview: {fontWeight: '800' as const, color: '#FFFFFF', textShadowColor: '#000000', textShadowOffset: {width: 0, height: 0}, textShadowRadius: 8}},
+  {key: 'neon', label: 'Neon', preview: {fontWeight: '700' as const, color: '#00D4FF', textShadowColor: '#00D4FF', textShadowOffset: {width: 0, height: 0}, textShadowRadius: 12}},
+  {key: 'classic', label: 'Classic', preview: {fontWeight: '600' as const, color: '#FFDD00', textShadowColor: 'rgba(0,0,0,0.9)', textShadowOffset: {width: 1, height: 1}, textShadowRadius: 3}},
+  {key: 'minimal', label: 'Minimal', preview: {fontWeight: '400' as const, color: '#FFFFFF'}},
+  {key: 'impact', label: 'Impact', preview: {fontWeight: '900' as const, color: '#FFFFFF', textShadowColor: 'rgba(0,0,0,0.9)', textShadowOffset: {width: 3, height: 3}, textShadowRadius: 6}},
+];
+
+const ANIMATIONS: {key: CaptionAnimation; label: string}[] = [
+  {key: 'none', label: 'None'},
+  {key: 'fade', label: 'Fade'},
+  {key: 'pop', label: 'Pop'},
+  {key: 'slide-up', label: 'Slide Up'},
+  {key: 'typewriter', label: 'Typewriter'},
+  {key: 'karaoke', label: 'Karaoke'},
+];
+
+const FILTERS: {key: string; label: string; overlay: any; dot: string}[] = [
+  {key: 'none', label: 'None', overlay: null, dot: '#333'},
+  {key: 'warm', label: 'Warm', overlay: {backgroundColor: 'rgba(255,140,50,0.15)'}, dot: '#FF8C32'},
+  {key: 'cool', label: 'Cool', overlay: {backgroundColor: 'rgba(50,100,255,0.15)'}, dot: '#3264FF'},
+  {key: 'vintage', label: 'Vintage', overlay: {backgroundColor: 'rgba(180,140,80,0.2)'}, dot: '#B48C50'},
+  {key: 'high-contrast', label: 'Hi-Con', overlay: {backgroundColor: 'rgba(0,0,0,0.1)'}, dot: '#888'},
+  {key: 'bw', label: 'B&W', overlay: {backgroundColor: 'rgba(128,128,128,0.4)'}, dot: '#999'},
+  {key: 'vibrant', label: 'Vibrant', overlay: {backgroundColor: 'rgba(255,0,100,0.08)'}, dot: '#FF0064'},
+];
+
+const SPEED_OPTIONS = [0.5, 0.75, 1, 1.5, 2, 3];
+
+const PRESET_NICHES = [
+  'beauty', 'business', 'comedy', 'cooking', 'dance', 'education',
+  'fashion', 'fitness', 'gaming', 'motivation', 'music', 'pets', 'tech', 'travel',
+];
 
 export default function VideoEditorScreen({navigation}: any) {
-  // ── Tier limits ──
-  const [maxVideoDuration, setMaxVideoDuration] = useState(30);
-  const [userTier, setUserTier] = useState('free');
-
-  // ── Core state machine ──
+  // ── Core state ──
   const [editorState, setEditorState] = useState<EditorState>('select');
 
-  // ── Original video (from gallery, never changes) ──
-  const [videoFile, setVideoFile] = useState<VideoFile | null>(null);
+  // ── Video data ──
+  const [videoUri, setVideoUri] = useState<string | null>(null);
+  const [videoFilename, setVideoFilename] = useState<string | null>(null);
+  const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [videoDuration, setVideoDuration] = useState(0);
+  const [videoWidth, setVideoWidth] = useState(1080);
+  const [videoHeight, setVideoHeight] = useState(1920);
+  const [thumbnails, setThumbnails] = useState<Thumbnail[]>([]);
+  const [uploading, setUploading] = useState(false);
+
+  // ── Playback ──
   const [currentTime, setCurrentTime] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
+  const videoRef = useRef<any>(null);
 
-  // ── Current video state (cumulative — updated after each tool application) ──
-  const [currentVideoUrl, setCurrentVideoUrl] = useState<string | null>(null);
-  const [currentVideoFilename, setCurrentVideoFilename] = useState<string | null>(null);
+  // ── Selection handles ──
+  const [selectionStart, setSelectionStart] = useState(0);
+  const [selectionEnd, setSelectionEnd] = useState(0);
 
-  // ── Generation state ──
-  const [statusMessage, setStatusMessage] = useState('');
-  const [generatedVideoUrl, setGeneratedVideoUrl] = useState<string | null>(null);
-  const [generatedVideoFilename, setGeneratedVideoFilename] = useState<string | null>(null);
-  const [errorMessage, setErrorMessage] = useState('');
-
-  // ── Review playback ──
-  const [reviewPlaying, setReviewPlaying] = useState(false);
-  const [videoError, setVideoError] = useState<string | null>(null);
-
-  // ── Download ──
-  const [downloading, setDownloading] = useState(false);
-
-  // ── Applied edits history ──
-  const [appliedEdits, setAppliedEdits] = useState<AppliedEdit[]>([]);
+  // ── Segments ──
+  const [segments, setSegments] = useState<Segment[]>([]);
 
   // ── AI Edit ──
-  const [activeQuickTool, setActiveQuickTool] = useState<QuickToolType | null>('aiedit');
-  const [quickToolResult, setQuickToolResult] = useState<any>(null);
-  const [aiEditPrompt, setAiEditPrompt] = useState('');
+  const [aiPrompt, setAiPrompt] = useState('');
+  const [aiTaskId, setAiTaskId] = useState<string | null>(null);
+  const [aiStatus, setAiStatus] = useState('');
+  const [aiPreviewUrl, setAiPreviewUrl] = useState<string | null>(null);
+  const [aiPreviewFilename, setAiPreviewFilename] = useState<string | null>(null);
+  const [aiSegmentIndex, setAiSegmentIndex] = useState<number | null>(null);
+  const [previewPlaying, setPreviewPlaying] = useState(false);
 
-  // ── Refs ──
-  const videoRef = useRef<any>(null);
-  const reviewVideoRef = useRef<any>(null);
+  // ── Export ──
+  const [exporting, setExporting] = useState(false);
+  const [exportUrl, setExportUrl] = useState<string | null>(null);
+
+  // ── Tool Panel ──
+  const [activeTool, setActiveTool] = useState<ActiveTool>('none');
+
+  // ── Captions ──
+  const [captionWords, setCaptionWords] = useState<CaptionWord[]>([]);
+  const [captionTimingMode, setCaptionTimingMode] = useState<CaptionTimingMode>('word');
+  const [captionFontStyle, setCaptionFontStyle] = useState<CaptionFontStyle>('bold-sans');
+  const [captionAnimation, setCaptionAnimation] = useState<CaptionAnimation>('pop');
+  const [captionEnabled, setCaptionEnabled] = useState(false);
+  const [captionLoading, setCaptionLoading] = useState(false);
+
+  // ── Filter ──
+  const [activeFilter, setActiveFilter] = useState('none');
+
+  // ── Make Viral ──
+  const [showNichePicker, setShowNichePicker] = useState(false);
+  const [selectedNiche, setSelectedNiche] = useState('');
+  const [customNiche, setCustomNiche] = useState('');
+  const [viralTaskId, setViralTaskId] = useState<string | null>(null);
+  const [viralStatus, setViralStatus] = useState('');
+  const [viralPreviewUrl, setViralPreviewUrl] = useState<string | null>(null);
+  const [viralEditSummary, setViralEditSummary] = useState('');
+  const [viralPreviewPlaying, setViralPreviewPlaying] = useState(false);
+
+  // ── Animations ──
   const fadeAnim = useRef(new Animated.Value(0)).current;
-  const progressAnim = useRef(new Animated.Value(0)).current;
-  const pulseAnim = useRef(new Animated.Value(1)).current;
+  const captionAnimValue = useRef(new Animated.Value(1)).current;
+  const prevCaptionTextRef = useRef('');
 
   useEffect(() => {
-    Animated.timing(fadeAnim, {toValue: 1, duration: 600, useNativeDriver: true}).start();
-    ApiService.getUsageStatus()
-      .then((res) => {
-        if (res.max_video_duration) setMaxVideoDuration(res.max_video_duration);
-        if (res.tier) setUserTier(res.tier);
-      })
-      .catch(() => {});
+    Animated.timing(fadeAnim, {
+      toValue: 1,
+      duration: 400,
+      useNativeDriver: true,
+    }).start();
   }, []);
 
-  useEffect(() => {
-    if (editorState === 'generating') {
-      Animated.loop(
-        Animated.sequence([
-          Animated.timing(pulseAnim, {toValue: 1.05, duration: 1200, useNativeDriver: true}),
-          Animated.timing(pulseAnim, {toValue: 1, duration: 1200, useNativeDriver: true}),
-        ]),
-      ).start();
-    } else {
-      pulseAnim.setValue(1);
-    }
-  }, [editorState]);
+  // ── Trigger caption animation on style/animation change ──
+  const triggerCaptionAnim = useCallback(() => {
+    captionAnimValue.setValue(0);
+    Animated.spring(captionAnimValue, {
+      toValue: 1,
+      friction: 4,
+      tension: 100,
+      useNativeDriver: true,
+    }).start();
+  }, [captionAnimValue]);
 
-  // ──────────────────────────
-  // VIDEO SELECTION
-  // ──────────────────────────
+  useEffect(() => { triggerCaptionAnim(); }, [captionFontStyle]);
+  useEffect(() => { if (captionAnimation !== 'none') triggerCaptionAnim(); }, [captionAnimation]);
 
+  // ── Video Selection ──
   const pickVideo = async () => {
     try {
       const result = await DocumentPicker.pick({
         type: [DocumentPicker.types.video],
-        copyTo: 'cachesDirectory',
       });
       const file = result[0];
-      const playableUri = file.fileCopyUri || file.uri;
-      setVideoFile({
-        uri: playableUri,
-        name: file.name || 'video.mp4',
-        size: file.size || 0,
-        type: file.type || 'video/mp4',
-      });
-      // Reset everything for a fresh session
-      setCurrentVideoUrl(null);
-      setCurrentVideoFilename(null);
-      setAppliedEdits([]);
-      setEditorState('edit');
-      setIsPlaying(false);
-      setCurrentTime(0);
-      setActiveQuickTool('aiedit');
-      setQuickToolResult(null);
+      if (!file?.uri) return;
+
+      setUploading(true);
+      setVideoUri(file.uri);
+
+      const data = await ApiService.editorUpload(file.uri, file.name || 'video.mp4');
+
+      setVideoFilename(data.video_filename);
+      setVideoUrl(data.video_url);
+      setVideoDuration(data.duration);
+      setVideoWidth(data.width || 1080);
+      setVideoHeight(data.height || 1920);
+      setThumbnails(data.thumbnails || []);
+      setSelectionStart(0);
+      setSelectionEnd(data.duration);
+
+      setSegments([{
+        id: 'seg_0',
+        startTime: 0,
+        endTime: data.duration,
+        type: 'original',
+        speed: 1,
+      }]);
+
+      setEditorState('editor');
+      setUploading(false);
     } catch (err: any) {
       if (!DocumentPicker.isCancel(err)) {
-        Alert.alert('Error', 'Could not select video. Please try again.');
+        const msg = err?.response?.data?.error || err?.message || 'Unknown error';
+        console.log('[EDITOR] Upload failed:', msg, err);
+        Alert.alert('Upload Failed', msg);
       }
+      setUploading(false);
     }
   };
 
-  // ──────────────────────────
-  // VIDEO EVENTS
-  // ──────────────────────────
+  // ── Playback Controls ──
+  const togglePlay = () => setIsPlaying(!isPlaying);
 
-  const onVideoLoad = (data: any) => {
-    const dur = data.duration || 0;
-    setVideoDuration(dur);
+  const onVideoProgress = (data: any) => {
+    setCurrentTime(data.currentTime);
+  };
 
-    // Duration check — block immediately if video exceeds tier limit
-    if (dur > maxVideoDuration) {
-      const nextTier = userTier === 'free' ? 'Growth' : userTier === 'growth' ? 'Pro' : '';
-      const upgradeMsg = nextTier
-        ? `Upgrade to ${nextTier} for longer videos.`
-        : 'You are on the highest plan.';
-      Alert.alert(
-        'Video Too Long',
-        `Your video is ${Math.round(dur)}s but your ${userTier} plan allows up to ${maxVideoDuration}s. ${upgradeMsg}`,
-        [{text: 'OK', onPress: () => { setVideoFile(null); setEditorState('select'); navigation.navigate('Dashboard'); }}],
-      );
+  const seekTo = (time: number) => {
+    videoRef.current?.seek(time);
+    setCurrentTime(time);
+  };
+
+  const formatTime = (secs: number) => {
+    const m = Math.floor(secs / 60);
+    const s = Math.floor(secs % 60);
+    return `${m}:${s.toString().padStart(2, '0')}`;
+  };
+
+  // ── Current playback speed based on segment ──
+  const currentSegment = segments.find(s => currentTime >= s.startTime && currentTime < s.endTime);
+  const playbackRate = currentSegment?.speed || 1;
+
+  // ── Handle Dragging ──
+  const selStartRef = useRef(selectionStart);
+  const selEndRef = useRef(selectionEnd);
+  const durationRef = useRef(videoDuration);
+  useEffect(() => { selStartRef.current = selectionStart; }, [selectionStart]);
+  useEffect(() => { selEndRef.current = selectionEnd; }, [selectionEnd]);
+  useEffect(() => { durationRef.current = videoDuration; }, [videoDuration]);
+
+  const timeToX = (time: number) => (time / Math.max(durationRef.current, 0.1)) * FILMSTRIP_WIDTH;
+  const xToTime = (x: number) => Math.max(0, Math.min((x / FILMSTRIP_WIDTH) * durationRef.current, durationRef.current));
+  const timeToXRender = (time: number) => (time / Math.max(videoDuration, 0.1)) * FILMSTRIP_WIDTH;
+
+  const startGrabRef = useRef(0);
+  const endGrabRef = useRef(0);
+
+  const startPanResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: () => {
+        startGrabRef.current = selStartRef.current;
+      },
+      onPanResponderMove: (_, gesture) => {
+        const newTime = xToTime(timeToX(startGrabRef.current) + gesture.dx);
+        if (newTime < selEndRef.current - 0.5) {
+          setSelectionStart(Math.max(0, newTime));
+        }
+      },
+      onPanResponderRelease: () => {
+        videoRef.current?.seek(selStartRef.current);
+      },
+    })
+  ).current;
+
+  const endPanResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: () => {
+        endGrabRef.current = selEndRef.current;
+      },
+      onPanResponderMove: (_, gesture) => {
+        const newTime = xToTime(timeToX(endGrabRef.current) + gesture.dx);
+        if (newTime > selStartRef.current + 0.5) {
+          setSelectionEnd(Math.min(durationRef.current, newTime));
+        }
+      },
+      onPanResponderRelease: () => {},
+    })
+  ).current;
+
+  // ── Select Full Video ──
+  const selectAll = () => {
+    setSelectionStart(0);
+    setSelectionEnd(videoDuration);
+  };
+
+  // ── Cut (split at current time) ──
+  const handleCut = () => {
+    if (currentTime <= 0.5 || currentTime >= videoDuration - 0.5) {
+      Alert.alert('Cannot Cut', 'Move playhead to where you want to split.');
       return;
     }
 
-    if (videoRef.current) {
-      videoRef.current.seek(0);
+    const newSegments: Segment[] = [];
+    for (const seg of segments) {
+      if (currentTime > seg.startTime && currentTime < seg.endTime) {
+        newSegments.push({
+          ...seg,
+          id: `seg_${Date.now()}_a`,
+          endTime: currentTime,
+        });
+        newSegments.push({
+          ...seg,
+          id: `seg_${Date.now()}_b`,
+          startTime: currentTime,
+          type: 'original',
+          editedFilename: undefined,
+          editedUrl: undefined,
+          prompt: undefined,
+        });
+      } else {
+        newSegments.push(seg);
+      }
     }
+    setSegments(newSegments);
   };
 
-  const onVideoProgress = (data: any) => {
-    setCurrentTime(data.currentTime || 0);
+  // ── Trim (remove selected range) ──
+  const handleTrim = () => {
+    if (selectionStart <= 0 && selectionEnd >= videoDuration) {
+      Alert.alert('Cannot Trim', 'Select a portion of the video first.');
+      return;
+    }
+
+    const newSegments: Segment[] = [];
+    for (const seg of segments) {
+      if (seg.startTime >= selectionStart && seg.endTime <= selectionEnd) {
+        continue;
+      }
+      if (seg.startTime < selectionStart && seg.endTime > selectionStart) {
+        newSegments.push({...seg, endTime: selectionStart, id: `seg_${Date.now()}_t`});
+      } else if (seg.startTime < selectionEnd && seg.endTime > selectionEnd) {
+        newSegments.push({...seg, startTime: selectionEnd, id: `seg_${Date.now()}_t2`});
+      } else if (seg.endTime <= selectionStart || seg.startTime >= selectionEnd) {
+        newSegments.push(seg);
+      }
+    }
+
+    if (newSegments.length === 0) {
+      Alert.alert('Cannot Trim', 'This would remove the entire video.');
+      return;
+    }
+
+    setSegments(newSegments);
+    const minTime = Math.min(...newSegments.map(s => s.startTime));
+    const maxTime = Math.max(...newSegments.map(s => s.endTime));
+    setSelectionStart(minTime);
+    setSelectionEnd(maxTime);
   };
 
-  const togglePlay = () => setIsPlaying(!isPlaying);
+  // ── AI Edit ──
+  const handleAiEdit = async () => {
+    if (!aiPrompt.trim()) {
+      Alert.alert('Enter a prompt', 'Describe what you want to do with the selected segment.');
+      return;
+    }
+    if (!videoFilename) return;
 
-  const formatTime = (s: number): string => {
-    const mins = Math.floor(s / 60);
-    const secs = Math.floor(s % 60);
-    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-  };
-
-  // ──────────────────────────
-  // AI EDIT
-  // ──────────────────────────
-
-  const TOOL_LABELS: Record<QuickToolType, string> = {
-    aiedit: 'AI Editing',
-  };
-
-  const applyQuickTool = async () => {
-    if (!activeQuickTool) return;
-
-    setEditorState('generating');
-    setStatusMessage(`${TOOL_LABELS[activeQuickTool]}...`);
-    progressAnim.setValue(0);
-    Animated.timing(progressAnim, {toValue: 0.2, duration: 500, useNativeDriver: false}).start();
+    setEditorState('ai_processing');
+    setAiStatus('Submitting edit...');
 
     try {
-      const formData = new FormData();
+      const segIdx = segments.findIndex(s => s.startTime <= selectionStart && s.endTime >= selectionStart);
+      setAiSegmentIndex(segIdx >= 0 ? segIdx : 0);
 
-      // Add video source
-      if (currentVideoFilename) {
-        formData.append('video_filename', currentVideoFilename);
-      } else if (videoFile) {
-        formData.append('video', {
-          uri: videoFile.uri,
-          type: videoFile.type || 'video/mp4',
-          name: videoFile.name || 'video.mp4',
-        } as any);
+      const data = await ApiService.editorSegmentEdit(
+        videoFilename,
+        selectionStart,
+        selectionEnd,
+        aiPrompt.trim(),
+      );
+
+      setAiTaskId(data.task_id);
+      setAiStatus('AI is editing your segment...');
+
+      const maxWait = 60 * 60 * 1000;
+      const start = Date.now();
+
+      while (Date.now() - start < maxWait) {
+        await new Promise(r => setTimeout(r, 5000));
+
+        try {
+          const status = await ApiService.editorPollSegment(data.task_id);
+
+          if (status.state === 'SUCCEEDED') {
+            setAiPreviewUrl(status.video_url);
+            setAiPreviewFilename(status.video_filename);
+            setEditorState('ai_preview');
+            return;
+          }
+
+          if (status.state === 'FAILED') {
+            throw new Error(status.error_message || 'AI edit failed');
+          }
+
+          if (status.state === 'ANALYZING') setAiStatus('Analyzing your video...');
+          else if (status.state === 'RESEARCHING') setAiStatus('Planning the edit...');
+          else if (status.state === 'RENDERING') setAiStatus('Rendering...');
+          else setAiStatus('Processing...');
+        } catch (pollErr: any) {
+          if (pollErr.message?.includes('failed')) throw pollErr;
+        }
       }
 
-      // Add AI edit prompt
-      formData.append('prompt', aiEditPrompt);
-
-      Animated.timing(progressAnim, {toValue: 0.5, duration: 3000, useNativeDriver: false}).start();
-
-      const result = await ApiService.applyQuickTool(activeQuickTool, formData);
-
-      Animated.timing(progressAnim, {toValue: 1, duration: 400, useNativeDriver: false}).start();
-
-      setQuickToolResult(result);
-      setGeneratedVideoUrl(result.video_url);
-      setGeneratedVideoFilename(result.video_filename);
-      setEditorState('review');
-    } catch (e: any) {
-      setEditorState('error');
-      setErrorMessage(e.userMessage || e.message || `Failed to apply ${activeQuickTool}.`);
+      throw new Error('Edit timed out');
+    } catch (err: any) {
+      Alert.alert('Edit Failed', err.message || 'Something went wrong. Try again.');
+      setEditorState('editor');
     }
   };
 
-  const handleQuickToolApply = () => {
-    // Quick tools directly replace the video (no stitch)
-    if (generatedVideoUrl && generatedVideoFilename) {
-      setCurrentVideoUrl(generatedVideoUrl);
-      setCurrentVideoFilename(generatedVideoFilename);
-      setAppliedEdits(prev => [
-        ...prev,
-        {tool: activeQuickTool || 'unknown', description: TOOL_LABELS[activeQuickTool!] || activeQuickTool || ''},
-      ]);
-    }
-    // Reset
-    setGeneratedVideoUrl(null);
-    setGeneratedVideoFilename(null);
-    setQuickToolResult(null);
-    setActiveQuickTool('aiedit');
-    setReviewPlaying(false);
-    setVideoError(null);
-    setIsPlaying(false);
-    setEditorState('edit');
-  };
+  // ── Accept AI Edit ──
+  const handleAcceptEdit = () => {
+    if (aiSegmentIndex === null || !aiPreviewFilename) return;
 
-  // ──────────────────────────
-  // DOWNLOAD
-  // ──────────────────────────
+    const newSegments = [...segments];
+    const targetSeg = newSegments[aiSegmentIndex];
 
-  const handleDownload = async () => {
-    const url = currentVideoUrl || (videoFile ? videoFile.uri : null);
-    if (!url) return;
+    if (targetSeg) {
+      const beforeSegments: Segment[] = [];
+      const afterSegments: Segment[] = [];
 
-    setDownloading(true);
-    try {
-      const supported = await Linking.canOpenURL(url);
-      if (supported) {
-        await Linking.openURL(url);
-        Alert.alert('Download Started', 'The video is opening in your browser. Use "Save video" to save it.');
-      } else {
-        await Share.share({
-          message: `Here is your edited video: ${url}`,
-          url,
+      if (selectionStart > targetSeg.startTime) {
+        beforeSegments.push({
+          id: `seg_${Date.now()}_pre`,
+          startTime: targetSeg.startTime,
+          endTime: selectionStart,
+          type: 'original',
         });
       }
-    } catch (e: any) {
-      Alert.alert('Error', 'Could not download video. Please try again.');
-    } finally {
-      setDownloading(false);
+
+      if (selectionEnd < targetSeg.endTime) {
+        afterSegments.push({
+          id: `seg_${Date.now()}_post`,
+          startTime: selectionEnd,
+          endTime: targetSeg.endTime,
+          type: 'original',
+        });
+      }
+
+      newSegments.splice(aiSegmentIndex, 1,
+        ...beforeSegments,
+        {
+          id: `seg_${Date.now()}_edited`,
+          startTime: selectionStart,
+          endTime: selectionEnd,
+          type: 'edited',
+          editedFilename: aiPreviewFilename,
+          editedUrl: aiPreviewUrl || undefined,
+          prompt: aiPrompt,
+        },
+        ...afterSegments,
+      );
+    }
+
+    setSegments(newSegments);
+    setEditorState('editor');
+    setAiPrompt('');
+    setAiPreviewUrl(null);
+    setAiPreviewFilename(null);
+    setAiSegmentIndex(null);
+  };
+
+  // ── Reject AI Edit ──
+  const handleRejectEdit = () => {
+    setEditorState('editor');
+    setAiPreviewUrl(null);
+    setAiPreviewFilename(null);
+    setAiSegmentIndex(null);
+  };
+
+  // ── Make Viral ──
+  const viralCancelledRef = useRef(false);
+
+  const handleMakeViral = async (niche: string) => {
+    if (!videoFilename || editorState === 'viral_processing') return;
+    viralCancelledRef.current = false;
+    setShowNichePicker(false);
+    setEditorState('viral_processing');
+    setViralStatus('Starting...');
+
+    try {
+      const data = await ApiService.editorMakeViral(videoFilename, niche);
+      setViralTaskId(data.task_id);
+
+      const maxWait = 60 * 60 * 1000;
+      const start = Date.now();
+
+      while (Date.now() - start < maxWait) {
+        if (viralCancelledRef.current) return;
+        await new Promise(r => setTimeout(r, 5000));
+        if (viralCancelledRef.current) return;
+
+        try {
+          const status = await ApiService.editorPollViral(data.task_id);
+
+          if (status.state === 'SUCCEEDED') {
+            if (viralCancelledRef.current) return;
+            setViralPreviewUrl(status.video_url);
+            setViralEditSummary(status.edit_summary || '');
+            if (Array.isArray(status.captions) && status.captions.length > 0) {
+              setCaptionWords(status.captions);
+              setCaptionEnabled(true);
+            }
+            setEditorState('viral_preview');
+            return;
+          }
+
+          if (status.state === 'FAILED') {
+            throw new Error(status.error_message || 'Make Viral failed');
+          }
+
+          const statusMap: Record<string, string> = {
+            'TRANSCRIBING': 'Transcribing audio...',
+            'SEARCHING': 'Searching trending styles...',
+            'ANALYZING': 'Analyzing your video...',
+            'RESEARCHING': 'Researching edit techniques...',
+            'RENDERING': 'Rendering viral edit...',
+          };
+          setViralStatus(statusMap[status.state] || 'Processing...');
+        } catch (pollErr: any) {
+          if (pollErr.message?.includes('failed')) throw pollErr;
+        }
+      }
+      throw new Error('Timed out');
+    } catch (err: any) {
+      if (viralCancelledRef.current) return;
+      const msg = err?.response?.data?.error || err?.message || 'Something went wrong.';
+      console.log('[MAKE_VIRAL] Failed:', msg, 'videoFilename:', videoFilename);
+      Alert.alert('Make Viral Failed', msg);
+      setEditorState('editor');
     }
   };
 
-  // ──────────────────────────
-  // ERROR RECOVERY
-  // ──────────────────────────
-
-  const handleRetry = () => {
-    setEditorState(videoFile ? 'edit' : 'select');
-    setGeneratedVideoUrl(null);
-    setGeneratedVideoFilename(null);
-    setQuickToolResult(null);
-    progressAnim.setValue(0);
-    setStatusMessage('');
-    setErrorMessage('');
+  // ── Transcribe (Auto Captions) ──
+  const handleTranscribe = async () => {
+    if (!videoFilename) return;
+    setCaptionLoading(true);
+    try {
+      const data = await ApiService.editorTranscribe(videoFilename);
+      setCaptionWords(data.words || []);
+      setCaptionEnabled(true);
+    } catch (err: any) {
+      Alert.alert('Transcription Failed', err.message || 'Could not generate captions.');
+    } finally {
+      setCaptionLoading(false);
+    }
   };
 
+  // ── Get current caption text for overlay ──
+  const getCurrentCaption = useCallback((): {text: string; words?: {word: string; active: boolean}[]} | null => {
+    const showSample = activeTool === 'captions' && captionWords.length === 0;
+    if (!captionEnabled && !showSample) return null;
+
+    if (showSample) {
+      return {text: 'Your captions here'};
+    }
+
+    const t = currentTime;
+
+    switch (captionTimingMode) {
+      case 'single-pop': {
+        const w = captionWords.find(cw => t >= cw.start_time && t <= cw.end_time);
+        return w ? {text: w.word} : null;
+      }
+      case 'word': {
+        const idx = captionWords.findIndex(cw => t >= cw.start_time && t <= cw.end_time);
+        if (idx < 0) return null;
+        const start = Math.max(0, idx - 2);
+        const end = Math.min(captionWords.length, idx + 3);
+        const context = captionWords.slice(start, end);
+        const activeIdx = idx - start;
+        return {
+          text: context.map(cw => cw.word).join(' '),
+          words: context.map((cw, i) => ({word: cw.word, active: i === activeIdx})),
+        };
+      }
+      case 'phrase': {
+        const phraseSize = 4;
+        for (let i = 0; i < captionWords.length; i += phraseSize) {
+          const phrase = captionWords.slice(i, i + phraseSize);
+          const pStart = phrase[0]?.start_time ?? 0;
+          const pEnd = phrase[phrase.length - 1]?.end_time ?? 0;
+          if (t >= pStart && t <= pEnd + 0.3) {
+            return {text: phrase.map(cw => cw.word).join(' ')};
+          }
+        }
+        return null;
+      }
+      case 'sentence': {
+        const windowSize = 3;
+        const windowStart = Math.floor(t / windowSize) * windowSize;
+        const windowEnd = windowStart + windowSize;
+        const inWindow = captionWords.filter(cw => cw.start_time >= windowStart && cw.start_time < windowEnd);
+        if (inWindow.length === 0) return null;
+        return {text: inWindow.map(cw => cw.word).join(' ')};
+      }
+    }
+  }, [captionEnabled, captionWords, currentTime, captionTimingMode, activeTool]);
+
+  // ── Trigger animation when caption text changes during playback ──
+  useEffect(() => {
+    const caption = getCurrentCaption();
+    const captionText = caption?.text || '';
+    if (captionText && captionText !== prevCaptionTextRef.current) {
+      prevCaptionTextRef.current = captionText;
+      if (captionAnimation !== 'none' && captionAnimation !== 'karaoke') {
+        triggerCaptionAnim();
+      }
+    }
+  }, [currentTime]);
+
+  // ── Set speed for current segment ──
+  const setSegmentSpeed = (speed: number) => {
+    const idx = segments.findIndex(s => selectionStart >= s.startTime && selectionStart < s.endTime);
+    if (idx >= 0) {
+      const newSegs = [...segments];
+      newSegs[idx] = {...newSegs[idx], speed};
+      setSegments(newSegs);
+    }
+  };
+
+  // ── Get current segment speed for speed panel display ──
+  const getCurrentSegmentSpeed = (): number => {
+    const seg = segments.find(s => selectionStart >= s.startTime && selectionStart < s.endTime);
+    return seg?.speed || 1;
+  };
+
+  // ── Export ──
+  const handleExport = async () => {
+    if (!videoFilename || segments.length === 0) return;
+
+    setExporting(true);
+    try {
+      const stitchSegments = segments.map(seg => ({
+        type: seg.type,
+        start_time: seg.startTime,
+        end_time: seg.endTime,
+        edited_filename: seg.editedFilename,
+        speed: seg.speed || 1,
+      }));
+
+      const captionsData = captionEnabled && captionWords.length > 0 ? {
+        enabled: true,
+        words: captionWords,
+        timing_mode: captionTimingMode,
+        font_style: captionFontStyle,
+        animation: captionAnimation,
+      } : undefined;
+
+      const result = await ApiService.editorStitch(
+        videoFilename,
+        stitchSegments,
+        activeFilter !== 'none' ? activeFilter : undefined,
+        captionsData,
+      );
+      setExportUrl(result.video_url);
+
+      Alert.alert(
+        'Export Complete',
+        'Your video is ready!',
+        [
+          {text: 'Share', onPress: () => Share.share({url: result.video_url, message: result.video_url})},
+          {text: 'Open', onPress: () => Linking.openURL(result.video_url)},
+          {text: 'OK'},
+        ],
+      );
+    } catch (err: any) {
+      Alert.alert('Export Failed', err.message || 'Could not export video.');
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  // ── New Video ──
   const handleNewVideo = () => {
     setEditorState('select');
-    setVideoFile(null);
-    setCurrentVideoUrl(null);
-    setCurrentVideoFilename(null);
+    setVideoUri(null);
+    setVideoFilename(null);
+    setVideoUrl(null);
     setVideoDuration(0);
+    setThumbnails([]);
+    setSegments([]);
+    setAiPrompt('');
+    setExportUrl(null);
     setCurrentTime(0);
-    setAppliedEdits([]);
-    setActiveQuickTool('aiedit');
-    setQuickToolResult(null);
-    progressAnim.setValue(0);
+    setActiveTool('none');
+    setCaptionWords([]);
+    setCaptionEnabled(false);
+    setActiveFilter('none');
   };
 
-  // ──────────────────────────
-  // RENDER HELPERS
-  // ──────────────────────────
+  // ── Caption animation style ──
+  const getCaptionAnimStyle = () => {
+    switch (captionAnimation) {
+      case 'fade':
+      case 'typewriter':
+        return {opacity: captionAnimValue};
+      case 'pop':
+        return {
+          opacity: captionAnimValue,
+          transform: [{scale: captionAnimValue.interpolate({
+            inputRange: [0, 0.6, 1],
+            outputRange: [0.3, 1.15, 1],
+          })}],
+        };
+      case 'slide-up':
+        return {
+          opacity: captionAnimValue,
+          transform: [{translateY: captionAnimValue.interpolate({
+            inputRange: [0, 1],
+            outputRange: [30, 0],
+          })}],
+        };
+      default:
+        return {};
+    }
+  };
 
-  const progressWidth = progressAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: ['0%', '100%'],
-  });
+  // ── Get font style for captions ──
+  const getCaptionFontPreview = () => {
+    return FONT_STYLES.find(f => f.key === captionFontStyle)?.preview || {};
+  };
 
-  const currentVideoSource = currentVideoUrl
-    ? {uri: currentVideoUrl}
-    : videoFile
-      ? {uri: videoFile.uri}
-      : null;
+  // ══════════════════════════════════════
+  // RENDERS
+  // ══════════════════════════════════════
 
-  // ──────────────────────────
-  // RENDER
-  // ──────────────────────────
+  // ── Render: SELECT state ──
+  const renderSelect = () => (
+    <View style={styles.selectContainer}>
+      <View style={styles.selectIcon}>
+        <Paragraph style={styles.selectIconText}>{'🎬'}</Paragraph>
+      </View>
+      <Title style={styles.selectTitle}>Video Editor</Title>
+      <Paragraph style={styles.selectDesc}>
+        Select a video to start editing. Cut, trim, add captions, speed, filters, and AI effects.
+      </Paragraph>
+      <TouchableOpacity onPress={pickVideo} disabled={uploading}>
+        <LinearGradient colors={['#00D4FF', '#00FFB3']} style={styles.selectBtn}>
+          {uploading ? (
+            <ActivityIndicator color="#050810" />
+          ) : (
+            <Paragraph style={styles.selectBtnText}>SELECT VIDEO</Paragraph>
+          )}
+        </LinearGradient>
+      </TouchableOpacity>
+    </View>
+  );
 
+  // ── Render: Filmstrip ──
+  const renderFilmstrip = () => {
+    const startX = timeToXRender(selectionStart);
+    const endX = timeToXRender(selectionEnd);
+    const playheadX = timeToXRender(currentTime);
+
+    return (
+      <View style={styles.filmstripContainer}>
+        <View style={styles.timeLabels}>
+          <Paragraph style={styles.timeText}>{formatTime(selectionStart)}</Paragraph>
+          <Paragraph style={styles.timeText}>{formatTime(currentTime)}</Paragraph>
+          <Paragraph style={styles.timeText}>{formatTime(selectionEnd)}</Paragraph>
+        </View>
+
+        <View style={styles.filmstrip}>
+          <View style={styles.thumbRow}>
+            {thumbnails.map((thumb, i) => (
+              <Image
+                key={i}
+                source={{uri: thumb.url}}
+                style={[styles.thumbImg, {width: FILMSTRIP_WIDTH / Math.max(thumbnails.length, 1)}]}
+                resizeMode="cover"
+              />
+            ))}
+          </View>
+
+          <View style={[styles.dimOverlay, {left: 0, width: startX}]} />
+          <View style={[styles.dimOverlay, {left: endX, right: 0, width: undefined}]} />
+
+          <View style={[styles.selectionBorder, {left: startX, width: endX - startX}]} />
+
+          {segments.filter(s => s.type === 'edited').map((seg, i) => (
+            <View
+              key={i}
+              style={[styles.editedMarker, {
+                left: timeToXRender(seg.startTime),
+                width: timeToXRender(seg.endTime) - timeToXRender(seg.startTime),
+              }]}
+            />
+          ))}
+
+          <View
+            style={[styles.handle, styles.handleLeft, {left: startX - HANDLE_WIDTH}]}
+            {...startPanResponder.panHandlers}
+          >
+            <View style={styles.handleBar} />
+          </View>
+
+          <View
+            style={[styles.handle, styles.handleRight, {left: endX}]}
+            {...endPanResponder.panHandlers}
+          >
+            <View style={styles.handleBar} />
+          </View>
+
+          <View style={[styles.playhead, {left: playheadX - 1}]} />
+        </View>
+
+        <TouchableOpacity onPress={selectAll} style={styles.selectAllBtn}>
+          <Paragraph style={styles.selectAllText}>Select All</Paragraph>
+        </TouchableOpacity>
+      </View>
+    );
+  };
+
+  // ── Render: Caption Overlay (on video) ──
+  const renderCaptionOverlay = () => {
+    const caption = getCurrentCaption();
+    if (!caption) return null;
+
+    const fontStyle = getCaptionFontPreview();
+    const isLargeSingle = captionTimingMode === 'single-pop';
+    const fontSize = isLargeSingle ? 36 : 22;
+
+    return (
+      <Animated.View
+        style={[styles.captionOverlay, getCaptionAnimStyle()]}
+        pointerEvents="none"
+      >
+        {caption.words && captionAnimation === 'karaoke' ? (
+          <View style={styles.captionWordRow}>
+            {caption.words.map((w, i) => (
+              <Text
+                key={i}
+                style={[
+                  styles.captionText,
+                  fontStyle,
+                  {fontSize},
+                  w.active && {color: '#00FFB3', transform: [{scale: 1.2}]},
+                ]}
+              >
+                {w.word}{' '}
+              </Text>
+            ))}
+          </View>
+        ) : caption.words ? (
+          <View style={styles.captionWordRow}>
+            {caption.words.map((w, i) => (
+              <Text
+                key={i}
+                style={[
+                  styles.captionText,
+                  fontStyle,
+                  {fontSize},
+                  w.active && {color: '#00FFB3'},
+                ]}
+              >
+                {w.word}{' '}
+              </Text>
+            ))}
+          </View>
+        ) : (
+          <Text style={[styles.captionText, fontStyle, {fontSize}]}>
+            {caption.text}
+          </Text>
+        )}
+      </Animated.View>
+    );
+  };
+
+  // ── Render: Filter Overlay (on video) ──
+  const renderFilterOverlay = () => {
+    if (activeFilter === 'none') return null;
+    const filter = FILTERS.find(f => f.key === activeFilter);
+    if (!filter?.overlay) return null;
+    return <View style={[StyleSheet.absoluteFill, filter.overlay]} pointerEvents="none" />;
+  };
+
+  // ── Render: Caption Panel ──
+  const renderCaptionPanel = () => (
+    <View style={styles.toolPanel}>
+      <Paragraph style={styles.sectionLabel}>AUTO CAPTIONS</Paragraph>
+
+      {/* Generate / Toggle */}
+      <View style={styles.captionTopRow}>
+        {captionWords.length === 0 ? (
+          <TouchableOpacity onPress={handleTranscribe} disabled={captionLoading}>
+            <LinearGradient colors={captionLoading ? ['#1E293B', '#1E293B'] : ['#00D4FF', '#00FFB3']} style={styles.captionGenBtn}>
+              {captionLoading ? (
+                <ActivityIndicator color="#94A3B8" size="small" />
+              ) : (
+                <Paragraph style={styles.captionGenText}>GENERATE CAPTIONS</Paragraph>
+              )}
+            </LinearGradient>
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity
+            onPress={() => setCaptionEnabled(!captionEnabled)}
+            style={[styles.captionToggle, captionEnabled && styles.captionToggleActive]}
+          >
+            <Paragraph style={[styles.captionToggleText, captionEnabled && {color: '#050810'}]}>
+              {captionEnabled ? 'CAPTIONS ON' : 'CAPTIONS OFF'}
+            </Paragraph>
+          </TouchableOpacity>
+        )}
+      </View>
+
+      {/* Timing Mode */}
+      <Paragraph style={styles.panelSubLabel}>Timing</Paragraph>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll}>
+        {TIMING_MODES.map(tm => (
+          <TouchableOpacity
+            key={tm.key}
+            onPress={() => setCaptionTimingMode(tm.key)}
+            style={[styles.chip, captionTimingMode === tm.key && styles.chipActive]}
+          >
+            <Paragraph style={[styles.chipText, captionTimingMode === tm.key && styles.chipTextActive]}>
+              {tm.label}
+            </Paragraph>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
+
+      {/* Font Style */}
+      <Paragraph style={styles.panelSubLabel}>Font Style</Paragraph>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll}>
+        {FONT_STYLES.map(fs => (
+          <TouchableOpacity
+            key={fs.key}
+            onPress={() => {
+              setCaptionFontStyle(fs.key);
+              if (!captionEnabled && captionWords.length > 0) setCaptionEnabled(true);
+            }}
+            style={[styles.fontChip, captionFontStyle === fs.key && styles.chipActive]}
+          >
+            <Text style={[{fontSize: 18, marginBottom: 2}, fs.preview]}>Aa</Text>
+            <Paragraph style={[styles.chipLabel, captionFontStyle === fs.key && styles.chipTextActive]}>
+              {fs.label}
+            </Paragraph>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
+
+      {/* Animation */}
+      <Paragraph style={styles.panelSubLabel}>Animation</Paragraph>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll}>
+        {ANIMATIONS.map(anim => (
+          <TouchableOpacity
+            key={anim.key}
+            onPress={() => setCaptionAnimation(anim.key)}
+            style={[styles.chip, captionAnimation === anim.key && styles.chipActive]}
+          >
+            <Paragraph style={[styles.chipText, captionAnimation === anim.key && styles.chipTextActive]}>
+              {anim.label}
+            </Paragraph>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
+    </View>
+  );
+
+  // ── Render: Speed Panel ──
+  const renderSpeedPanel = () => {
+    const curSpeed = getCurrentSegmentSpeed();
+    const seg = segments.find(s => selectionStart >= s.startTime && selectionStart < s.endTime);
+
+    return (
+      <View style={styles.toolPanel}>
+        <Paragraph style={styles.sectionLabel}>SPEED</Paragraph>
+        {seg && (
+          <Paragraph style={styles.panelHint}>
+            Segment: {formatTime(seg.startTime)} — {formatTime(seg.endTime)}
+          </Paragraph>
+        )}
+        <View style={styles.speedRow}>
+          {SPEED_OPTIONS.map(sp => (
+            <TouchableOpacity
+              key={sp}
+              onPress={() => setSegmentSpeed(sp)}
+              style={[styles.speedBtn, curSpeed === sp && styles.speedBtnActive]}
+            >
+              <Paragraph style={[styles.speedBtnText, curSpeed === sp && styles.speedBtnTextActive]}>
+                {sp}x
+              </Paragraph>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </View>
+    );
+  };
+
+  // ── Render: Filter Panel ──
+  const renderFilterPanel = () => (
+    <View style={styles.toolPanel}>
+      <Paragraph style={styles.sectionLabel}>FILTERS</Paragraph>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll}>
+        {FILTERS.map(f => (
+          <TouchableOpacity
+            key={f.key}
+            onPress={() => setActiveFilter(f.key)}
+            style={[styles.filterChip, activeFilter === f.key && styles.chipActive]}
+          >
+            <View style={[styles.filterDot, {backgroundColor: f.dot}]} />
+            <Paragraph style={[styles.chipLabel, activeFilter === f.key && styles.chipTextActive]}>
+              {f.label}
+            </Paragraph>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
+    </View>
+  );
+
+  // ── Render: Segment List ──
+  const renderSegmentList = () => (
+    <View style={styles.segmentList}>
+      <Paragraph style={styles.sectionLabel}>SEGMENTS</Paragraph>
+      {segments.map((seg, i) => (
+        <View key={seg.id} style={[
+          styles.segmentItem,
+          seg.type === 'edited' && styles.segmentItemEdited,
+        ]}>
+          <View style={styles.segmentInfo}>
+            <Paragraph style={styles.segmentTime}>
+              {formatTime(seg.startTime)} — {formatTime(seg.endTime)}
+              {seg.speed && seg.speed !== 1 ? ` (${seg.speed}x)` : ''}
+            </Paragraph>
+            <Paragraph style={styles.segmentType}>
+              {seg.type === 'edited' ? `AI: ${seg.prompt?.slice(0, 30)}...` : 'Original'}
+            </Paragraph>
+          </View>
+          {seg.type === 'edited' && (
+            <TouchableOpacity
+              onPress={() => {
+                const newSegs = [...segments];
+                newSegs[i] = {...seg, type: 'original', editedFilename: undefined, editedUrl: undefined, prompt: undefined};
+                setSegments(newSegs);
+              }}
+              style={styles.revertBtn}
+            >
+              <Paragraph style={styles.revertText}>Undo</Paragraph>
+            </TouchableOpacity>
+          )}
+        </View>
+      ))}
+    </View>
+  );
+
+  // ── Render: Niche Picker ──
+  const renderNichePicker = () => (
+    <View style={styles.nichePickerOverlay}>
+      <View style={styles.nichePickerCard}>
+        <Paragraph style={styles.sectionLabel}>SELECT YOUR NICHE</Paragraph>
+        <Paragraph style={styles.nichePickerDesc}>
+          AI will apply editing styles popular in your niche
+        </Paragraph>
+
+        <View style={styles.nicheChipGrid}>
+          {PRESET_NICHES.map(n => (
+            <TouchableOpacity
+              key={n}
+              onPress={() => {
+                setSelectedNiche(n);
+                handleMakeViral(n);
+              }}
+              style={[styles.nicheChip, selectedNiche === n && styles.chipActive]}
+            >
+              <Paragraph style={[styles.nicheChipText, selectedNiche === n && styles.chipTextActive]}>
+                {n.charAt(0).toUpperCase() + n.slice(1)}
+              </Paragraph>
+            </TouchableOpacity>
+          ))}
+          <TouchableOpacity
+            onPress={() => setSelectedNiche('others')}
+            style={[styles.nicheChip, selectedNiche === 'others' && styles.chipActive]}
+          >
+            <Paragraph style={[styles.nicheChipText, selectedNiche === 'others' && styles.chipTextActive]}>
+              Others
+            </Paragraph>
+          </TouchableOpacity>
+        </View>
+
+        {selectedNiche === 'others' && (
+          <View style={styles.customNicheRow}>
+            <TextInput
+              style={styles.customNicheInput}
+              placeholder="Type your niche..."
+              placeholderTextColor="#64748B"
+              value={customNiche}
+              onChangeText={setCustomNiche}
+              maxLength={30}
+            />
+            <TouchableOpacity
+              onPress={() => {
+                if (customNiche.trim()) handleMakeViral(customNiche.trim().toLowerCase());
+              }}
+              disabled={!customNiche.trim()}
+            >
+              <LinearGradient
+                colors={customNiche.trim() ? ['#00D4FF', '#00FFB3'] : ['#1E293B', '#1E293B']}
+                style={styles.customNicheGoBtn}
+              >
+                <Paragraph style={[styles.customNicheGoText, !customNiche.trim() && {color: '#64748B'}]}>GO</Paragraph>
+              </LinearGradient>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        <TouchableOpacity onPress={() => setShowNichePicker(false)} style={styles.nichePickerCancel}>
+          <Paragraph style={styles.cancelText}>Cancel</Paragraph>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+
+  // ── Render: Viral Processing state ──
+  const renderViralProcessing = () => (
+    <View style={styles.processingContainer}>
+      <ActivityIndicator size="large" color="#00FFB3" />
+      <Title style={styles.processingTitle}>Making it Viral</Title>
+      <Paragraph style={styles.processingStatus}>{viralStatus}</Paragraph>
+      <Paragraph style={styles.processingHint}>
+        AI is applying niche-optimized edits: captions, effects, zoom, color grading, and pacing
+      </Paragraph>
+      <TouchableOpacity
+        onPress={() => { viralCancelledRef.current = true; setEditorState('editor'); }}
+        style={styles.cancelBtn}
+      >
+        <Paragraph style={styles.cancelText}>Cancel</Paragraph>
+      </TouchableOpacity>
+    </View>
+  );
+
+  // ── Render: Viral Preview state ──
+  const renderViralPreview = () => (
+    <View style={styles.previewContainer}>
+      <Paragraph style={styles.sectionLabel}>VIRAL EDIT PREVIEW</Paragraph>
+
+      <TouchableOpacity
+        onPress={() => setViralPreviewPlaying(!viralPreviewPlaying)}
+        activeOpacity={0.9}
+        style={styles.previewVideoContainer}
+      >
+        {viralPreviewUrl && (
+          <Video
+            source={{uri: viralPreviewUrl}}
+            style={styles.previewVideo}
+            resizeMode="contain"
+            paused={!viralPreviewPlaying}
+            repeat
+          />
+        )}
+        {!viralPreviewPlaying && (
+          <View style={styles.playOverlay}>
+            <View style={styles.playButton}>
+              <Paragraph style={styles.playIcon}>{'▶'}</Paragraph>
+            </View>
+          </View>
+        )}
+      </TouchableOpacity>
+
+      {viralEditSummary ? (
+        <View style={styles.viralSummaryBox}>
+          <Paragraph style={styles.viralSummaryLabel}>EDITS APPLIED</Paragraph>
+          <Paragraph style={styles.viralSummaryText}>{viralEditSummary}</Paragraph>
+        </View>
+      ) : null}
+
+      <View style={styles.previewActions}>
+        <TouchableOpacity onPress={() => setEditorState('editor')} style={styles.rejectBtn}>
+          <Paragraph style={styles.rejectText}>BACK</Paragraph>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => {
+          if (viralPreviewUrl) {
+            setExportUrl(viralPreviewUrl);
+            Alert.alert(
+              'Viral Edit Ready',
+              'Your viral-optimized video is ready!',
+              [
+                {text: 'Share', onPress: () => Share.share({url: viralPreviewUrl, message: viralPreviewUrl})},
+                {text: 'Open', onPress: () => Linking.openURL(viralPreviewUrl)},
+                {text: 'OK'},
+              ],
+            );
+          }
+        }}>
+          <LinearGradient colors={['#00D4FF', '#00FFB3']} style={styles.acceptBtn}>
+            <Paragraph style={styles.acceptText}>USE THIS</Paragraph>
+          </LinearGradient>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+
+  // ── Render: EDITOR state ──
+  const renderEditor = () => (
+    <View style={styles.editorContainer}>
+      {/* Make Viral Button */}
+      <TouchableOpacity onPress={() => setShowNichePicker(true)} style={styles.makeViralBtn}>
+        <LinearGradient
+          colors={['#FF6B00', '#FF2D87']}
+          start={{x: 0, y: 0}}
+          end={{x: 1, y: 0}}
+          style={styles.makeViralGradient}
+        >
+          <Paragraph style={styles.makeViralIcon}>{'🔥'}</Paragraph>
+          <Paragraph style={styles.makeViralText}>MAKE VIRAL</Paragraph>
+        </LinearGradient>
+      </TouchableOpacity>
+
+      {/* Niche Picker Modal */}
+      {showNichePicker && renderNichePicker()}
+
+      {/* Video Player with overlays */}
+      <TouchableOpacity onPress={togglePlay} activeOpacity={0.9} style={styles.videoContainer}>
+        <Video
+          ref={videoRef}
+          source={{uri: videoUrl || videoUri || ''}}
+          style={styles.video}
+          resizeMode="contain"
+          paused={!isPlaying}
+          onProgress={onVideoProgress}
+          rate={playbackRate}
+          repeat
+        />
+        {renderFilterOverlay()}
+        {renderCaptionOverlay()}
+        {!isPlaying && (
+          <View style={styles.playOverlay}>
+            <View style={styles.playButton}>
+              <Paragraph style={styles.playIcon}>{'▶'}</Paragraph>
+            </View>
+          </View>
+        )}
+      </TouchableOpacity>
+
+      {/* Filmstrip with handles */}
+      {renderFilmstrip()}
+
+      {/* Tool Buttons */}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.toolScroll}>
+        <TouchableOpacity onPress={handleCut} style={styles.toolBtn}>
+          <Paragraph style={styles.toolIcon}>{'✂'}</Paragraph>
+          <Paragraph style={styles.toolLabel}>Cut</Paragraph>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={handleTrim} style={styles.toolBtn}>
+          <Paragraph style={styles.toolIcon}>{'✏'}</Paragraph>
+          <Paragraph style={styles.toolLabel}>Trim</Paragraph>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={selectAll} style={styles.toolBtn}>
+          <Paragraph style={styles.toolIcon}>{'⬜'}</Paragraph>
+          <Paragraph style={styles.toolLabel}>Select All</Paragraph>
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={() => setActiveTool(activeTool === 'captions' ? 'none' : 'captions')}
+          style={[styles.toolBtn, activeTool === 'captions' && styles.toolBtnActive]}
+        >
+          <Paragraph style={styles.toolIcon}>{'💬'}</Paragraph>
+          <Paragraph style={[styles.toolLabel, activeTool === 'captions' && {color: '#00D4FF'}]}>Captions</Paragraph>
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={() => setActiveTool(activeTool === 'speed' ? 'none' : 'speed')}
+          style={[styles.toolBtn, activeTool === 'speed' && styles.toolBtnActive]}
+        >
+          <Paragraph style={styles.toolIcon}>{'⚡'}</Paragraph>
+          <Paragraph style={[styles.toolLabel, activeTool === 'speed' && {color: '#00D4FF'}]}>Speed</Paragraph>
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={() => setActiveTool(activeTool === 'filters' ? 'none' : 'filters')}
+          style={[styles.toolBtn, activeTool === 'filters' && styles.toolBtnActive]}
+        >
+          <Paragraph style={styles.toolIcon}>{'🎨'}</Paragraph>
+          <Paragraph style={[styles.toolLabel, activeTool === 'filters' && {color: '#00D4FF'}]}>Filters</Paragraph>
+        </TouchableOpacity>
+      </ScrollView>
+
+      {/* Tool Panels */}
+      {activeTool === 'captions' && renderCaptionPanel()}
+      {activeTool === 'speed' && renderSpeedPanel()}
+      {activeTool === 'filters' && renderFilterPanel()}
+
+      {/* Segment List */}
+      {renderSegmentList()}
+
+      {/* Export + New Video */}
+      <View style={styles.bottomActions}>
+        <TouchableOpacity onPress={handleExport} disabled={exporting}>
+          <LinearGradient colors={['#00D4FF', '#00FFB3']} style={styles.exportBtn}>
+            {exporting ? (
+              <ActivityIndicator color="#050810" />
+            ) : (
+              <Paragraph style={styles.exportBtnText}>EXPORT VIDEO</Paragraph>
+            )}
+          </LinearGradient>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={handleNewVideo} style={styles.newVideoBtn}>
+          <Paragraph style={styles.newVideoText}>Choose Different Video</Paragraph>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+
+  // ── Render: AI Processing state ──
+  const renderAiProcessing = () => (
+    <View style={styles.processingContainer}>
+      <ActivityIndicator size="large" color="#00D4FF" />
+      <Title style={styles.processingTitle}>Editing Segment</Title>
+      <Paragraph style={styles.processingStatus}>{aiStatus}</Paragraph>
+      <Paragraph style={styles.processingHint}>
+        {formatTime(selectionStart)} — {formatTime(selectionEnd)}
+      </Paragraph>
+      <TouchableOpacity
+        onPress={() => setEditorState('editor')}
+        style={styles.cancelBtn}
+      >
+        <Paragraph style={styles.cancelText}>Cancel</Paragraph>
+      </TouchableOpacity>
+    </View>
+  );
+
+  // ── Render: AI Preview state ──
+  const renderAiPreview = () => (
+    <View style={styles.previewContainer}>
+      <Paragraph style={styles.sectionLabel}>PREVIEW EDITED SEGMENT</Paragraph>
+
+      <TouchableOpacity
+        onPress={() => setPreviewPlaying(!previewPlaying)}
+        activeOpacity={0.9}
+        style={styles.previewVideoContainer}
+      >
+        {aiPreviewUrl && (
+          <Video
+            source={{uri: aiPreviewUrl}}
+            style={styles.previewVideo}
+            resizeMode="contain"
+            paused={!previewPlaying}
+            repeat
+          />
+        )}
+        {!previewPlaying && (
+          <View style={styles.playOverlay}>
+            <View style={styles.playButton}>
+              <Paragraph style={styles.playIcon}>{'▶'}</Paragraph>
+            </View>
+          </View>
+        )}
+      </TouchableOpacity>
+
+      <Paragraph style={styles.previewPrompt}>"{aiPrompt}"</Paragraph>
+
+      <View style={styles.previewActions}>
+        <TouchableOpacity onPress={handleRejectEdit} style={styles.rejectBtn}>
+          <Paragraph style={styles.rejectText}>REJECT</Paragraph>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={handleAcceptEdit}>
+          <LinearGradient colors={['#00D4FF', '#00FFB3']} style={styles.acceptBtn}>
+            <Paragraph style={styles.acceptText}>ACCEPT</Paragraph>
+          </LinearGradient>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+
+  // ── Main Render ──
   return (
     <LinearGradient colors={['#050810', '#0C1220']} style={styles.container}>
       <ScrollView
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled">
+        keyboardShouldPersistTaps="handled"
+      >
         <Animated.View style={{opacity: fadeAnim}}>
-          {/* ── Header ── */}
           <View style={styles.header}>
             <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
               <Paragraph style={styles.backBtnText}>{'←'}</Paragraph>
             </TouchableOpacity>
             <View style={{flex: 1}}>
-              <View style={styles.headerBadge}>
-                <View style={styles.headerDot} />
-                <Paragraph style={styles.headerBadgeText}>AI VIDEO EDITOR</Paragraph>
-              </View>
-              <Title style={styles.title}>Edit Studio</Title>
-            </View>
-            <View style={styles.veoBadge}>
-              <LinearGradient colors={['#00D4FF', '#00FFB3']} style={styles.veoBadgeGrad}>
-                <Paragraph style={styles.veoBadgeText}>AI EDIT</Paragraph>
-              </LinearGradient>
+              <Title style={styles.title}>Video Editor</Title>
             </View>
           </View>
 
-          {/* ════════════════════════════════════
-              STATE: SELECT
-              ════════════════════════════════════ */}
-          {editorState === 'select' && (
-            <View>
-              <Paragraph style={styles.intro}>
-                Select a video and describe your edit in plain language. AI watches your video and makes it happen.
-              </Paragraph>
-
-              <TouchableOpacity onPress={pickVideo} activeOpacity={0.85}>
-                <LinearGradient colors={['#0C1220', '#111827']} style={styles.uploadArea}>
-                  <View style={styles.uploadIconWrap}>
-                    <View style={styles.uploadIconBg}>
-                      <Paragraph style={styles.uploadIcon}>{'🎬'}</Paragraph>
-                    </View>
-                  </View>
-                  <Paragraph style={styles.uploadTitle}>Select Video</Paragraph>
-                  <Paragraph style={styles.uploadSub}>MP4, MOV, AVI — up to 100MB</Paragraph>
-                </LinearGradient>
-              </TouchableOpacity>
-
-              <View style={styles.howItWorks}>
-                <View style={styles.sectionHeader}>
-                  <View style={styles.dot} />
-                  <Paragraph style={styles.sectionLabel}>HOW IT WORKS</Paragraph>
-                </View>
-                {[
-                  {step: '1', text: 'Select a video from your gallery'},
-                  {step: '2', text: 'Describe your edit in plain language'},
-                  {step: '3', text: 'AI analyzes audio + visuals and makes precise edits'},
-                  {step: '4', text: 'Preview the result — apply or try different settings'},
-                  {step: '5', text: 'Stack multiple edits for the perfect video'},
-                  {step: '6', text: 'Download your finished video'},
-                ].map((item, i) => (
-                  <View key={i} style={styles.howStep}>
-                    <View style={styles.howStepNum}>
-                      <Paragraph style={styles.howStepNumText}>{item.step}</Paragraph>
-                    </View>
-                    <Paragraph style={styles.howStepText}>{item.text}</Paragraph>
-                  </View>
-                ))}
-              </View>
-            </View>
-          )}
-
-          {/* ════════════════════════════════════
-              STATE: EDIT — Main Editing Page
-              ════════════════════════════════════ */}
-          {editorState === 'edit' && (videoFile || currentVideoUrl) && (
-            <View>
-              {/* ── Video Player ── */}
-              <View style={styles.videoPlayerWrap}>
-                {currentVideoSource && (
-                  <Video
-                    ref={videoRef}
-                    source={currentVideoSource}
-                    style={styles.videoPlayer}
-                    paused={!isPlaying}
-                    resizeMode="contain"
-                    onLoad={onVideoLoad}
-                    onProgress={onVideoProgress}
-                    onError={(e: any) => {
-                      if (__DEV__) console.log('Video playback error:', e?.nativeEvent?.error || e);
-                    }}
-                    repeat={true}
-                    useTextureView={false}
-                    bufferConfig={{
-                      minBufferMs: 5000,
-                      maxBufferMs: 30000,
-                      bufferForPlaybackMs: 2500,
-                      bufferForPlaybackAfterRebufferMs: 5000,
-                    }}
-                  />
-                )}
-                <TouchableOpacity style={styles.playOverlay} onPress={togglePlay} activeOpacity={0.8}>
-                  {!isPlaying && (
-                    <View style={styles.playBtn}>
-                      <Paragraph style={styles.playBtnText}>{'▶'}</Paragraph>
-                    </View>
-                  )}
-                </TouchableOpacity>
-                <View style={styles.timeBadge}>
-                  <Paragraph style={styles.timeBadgeText}>
-                    {formatTime(currentTime)} / {formatTime(videoDuration)}
-                  </Paragraph>
-                </View>
-              </View>
-
-              {/* ── Applied edits indicator ── */}
-              {appliedEdits.length > 0 && (
-                <View style={styles.editsAppliedBadge}>
-                  <View style={styles.editsAppliedDot} />
-                  <Paragraph style={styles.editsAppliedText}>
-                    {appliedEdits.length} edit{appliedEdits.length > 1 ? 's' : ''} applied
-                  </Paragraph>
-                </View>
-              )}
-
-              {/* ── AI Edit Panel ── */}
-              {activeQuickTool === 'aiedit' && (
-                <View style={styles.toolPanel}>
-                  <Paragraph style={styles.toolPanelTitle}>AI Edit</Paragraph>
-                  <Paragraph style={styles.toolPanelSub}>
-                    Describe your edit — AI watches your video and makes it happen
-                  </Paragraph>
-                  <TextInput
-                    style={styles.aiEditInput}
-                    placeholder="e.g. Make it black and white after 5 seconds, remove the background noise, zoom in on my face at the start..."
-                    placeholderTextColor="#334155"
-                    value={aiEditPrompt}
-                    onChangeText={setAiEditPrompt}
-                    multiline
-                    maxLength={2000}
-                    textAlignVertical="top"
-                  />
-                  <Paragraph style={styles.aiEditHint}>
-                    {aiEditPrompt.length}/2000 — AI analyzes audio + visuals to make precise edits
-                  </Paragraph>
-                  <TouchableOpacity
-                    onPress={applyQuickTool}
-                    activeOpacity={0.85}
-                    disabled={!aiEditPrompt.trim()}>
-                    <LinearGradient
-                      colors={aiEditPrompt.trim() ? ['#00D4FF', '#00FFB3'] : ['#1E293B', '#1E293B']}
-                      start={{x: 0, y: 0}} end={{x: 1, y: 0}}
-                      style={styles.toolApplyBtn}>
-                      <Paragraph style={[styles.toolApplyBtnText, !aiEditPrompt.trim() && {color: '#64748B'}]}>
-                        APPLY AI EDIT
-                      </Paragraph>
-                    </LinearGradient>
-                  </TouchableOpacity>
-                </View>
-              )}
-
-              {/* ── DOWNLOAD button ── */}
-              {(currentVideoUrl || videoFile) && (
-                <TouchableOpacity
-                  onPress={handleDownload}
-                  activeOpacity={0.85}
-                  disabled={downloading}
-                  style={styles.downloadWrap}>
-                  <View style={[styles.downloadBtn, downloading && {opacity: 0.6}]}>
-                    {downloading ? (
-                      <View style={styles.downloadingRow}>
-                        <ActivityIndicator color="#00D4FF" size="small" />
-                        <Paragraph style={[styles.downloadBtnTextOutline, {marginLeft: 10}]}>SAVING...</Paragraph>
-                      </View>
-                    ) : (
-                      <Paragraph style={styles.downloadBtnTextOutline}>
-                        DOWNLOAD {currentVideoUrl ? 'EDITED ' : ''}VIDEO
-                      </Paragraph>
-                    )}
-                  </View>
-                </TouchableOpacity>
-              )}
-
-              {/* ── Choose different video ── */}
-              <TouchableOpacity onPress={handleNewVideo} style={styles.newVideoBtn} activeOpacity={0.75}>
-                <Paragraph style={styles.newVideoText}>Choose Different Video</Paragraph>
-              </TouchableOpacity>
-
-              <Paragraph style={styles.disclaimer}>
-                AI tools process your full video. Original stays untouched.
-              </Paragraph>
-            </View>
-          )}
-
-          {/* ════════════════════════════════════
-              STATE: GENERATING
-              ════════════════════════════════════ */}
-          {editorState === 'generating' && (
-            <View style={styles.genContainer}>
-              <Animated.View style={[styles.genOrb, {transform: [{scale: pulseAnim}]}]}>
-                <LinearGradient colors={['#00D4FF20', '#00FFB315']} style={styles.genOrbOuter}>
-                  <LinearGradient colors={['#00D4FF', '#00FFB3']} style={styles.genOrbInner}>
-                    <LoadingAnimation size={80} />
-                  </LinearGradient>
-                </LinearGradient>
-              </Animated.View>
-
-              <Paragraph style={styles.genTitle}>Processing Video</Paragraph>
-              <Paragraph style={styles.genStatus}>{statusMessage}</Paragraph>
-
-              <View style={styles.progressWrap}>
-                <Animated.View style={[styles.progressBar, {width: progressWidth}]} />
-              </View>
-
-              <View style={styles.genInfo}>
-                <View style={styles.genInfoRow}>
-                  <View style={[styles.genInfoDot, {backgroundColor: '#00FFB3'}]} />
-                  <Paragraph style={styles.genInfoText}>
-                    Processing full video with AI
-                  </Paragraph>
-                </View>
-              </View>
-
-              <TouchableOpacity onPress={handleRetry} style={styles.cancelBtn} activeOpacity={0.7}>
-                <Paragraph style={styles.cancelBtnText}>Cancel</Paragraph>
-              </TouchableOpacity>
-            </View>
-          )}
-
-          {/* ════════════════════════════════════
-              STATE: REVIEW
-              ════════════════════════════════════ */}
-          {editorState === 'review' && (
-            <View>
-              <View style={styles.reviewHeader}>
-                <Paragraph style={styles.reviewTitle}>AI Edit Ready</Paragraph>
-                <Paragraph style={styles.reviewSub}>
-                  Preview your edited video. Apply or try different settings.
-                </Paragraph>
-              </View>
-
-              {/* Video preview */}
-              <View style={styles.resultCard}>
-                <View style={styles.resultGlow} />
-                <View style={styles.reviewPlayerWrap}>
-                  {generatedVideoUrl ? (
-                    <Video
-                      ref={reviewVideoRef}
-                      source={{uri: generatedVideoUrl}}
-                      style={styles.reviewPlayer}
-                      paused={!reviewPlaying}
-                      resizeMode="contain"
-                      repeat={true}
-                      onError={(e: any) => {
-                        if (__DEV__) console.log('Review video error:', e?.nativeEvent?.error || e);
-                        setVideoError('Could not play video. The server may still be processing.');
-                      }}
-                      useTextureView={false}
-                      bufferConfig={{
-                        minBufferMs: 5000,
-                        maxBufferMs: 30000,
-                        bufferForPlaybackMs: 2500,
-                        bufferForPlaybackAfterRebufferMs: 5000,
-                      }}
-                    />
-                  ) : (
-                    <View style={styles.reviewPlayerFallback}>
-                      <Paragraph style={styles.fallbackIcon}>!</Paragraph>
-                      <Paragraph style={styles.fallbackText}>Video not available</Paragraph>
-                    </View>
-                  )}
-
-                  {videoError ? (
-                    <View style={styles.videoErrorOverlay}>
-                      <Paragraph style={styles.videoErrorIcon}>!</Paragraph>
-                      <Paragraph style={styles.videoErrorText}>{videoError}</Paragraph>
-                      <TouchableOpacity onPress={() => setVideoError(null)} style={styles.videoErrorDismiss}>
-                        <Paragraph style={styles.videoErrorDismissText}>Dismiss</Paragraph>
-                      </TouchableOpacity>
-                    </View>
-                  ) : (
-                    <TouchableOpacity
-                      style={styles.reviewPlayOverlay}
-                      onPress={() => setReviewPlaying(!reviewPlaying)}
-                      activeOpacity={0.8}>
-                      {!reviewPlaying && (
-                        <View style={styles.reviewPlayBtn}>
-                          <Paragraph style={styles.reviewPlayBtnText}>{'▶'}</Paragraph>
-                        </View>
-                      )}
-                    </TouchableOpacity>
-                  )}
-                </View>
-
-                {/* Meta bar */}
-                <View style={styles.reviewMeta}>
-                  <View style={styles.reviewMetaBadge}>
-                    <Paragraph style={styles.reviewMetaBadgeText}>AI EDIT</Paragraph>
-                  </View>
-                  <Paragraph style={styles.reviewMetaText}>AI Edit complete</Paragraph>
-                </View>
-              </View>
-
-              {/* AI edit result metadata */}
-              {quickToolResult && (
-                <View style={styles.editSummaryCard}>
-                  <View style={styles.editSummaryRow}>
-                    <Paragraph style={styles.editSummaryLabel}>RESULT</Paragraph>
-                    <Paragraph style={styles.editSummaryValue}>
-                      {quickToolResult.description || 'AI Edit applied successfully'}
-                    </Paragraph>
-                  </View>
-                </View>
-              )}
-
-              {/* ── Action buttons ── */}
-              <TouchableOpacity onPress={handleQuickToolApply} activeOpacity={0.85}>
-                <LinearGradient
-                  colors={['#00FFB3', '#00D4FF']}
-                  start={{x: 0, y: 0}}
-                  end={{x: 1, y: 0}}
-                  style={styles.satisfiedBtn}>
-                  <Paragraph style={styles.satisfiedBtnText}>APPLY</Paragraph>
-                </LinearGradient>
-                <View style={[styles.generateGlow, {backgroundColor: '#00FFB3'}]} />
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                onPress={() => {
-                  setEditorState('edit');
-                  setGeneratedVideoUrl(null);
-                  setReviewPlaying(false);
-                  setVideoError(null);
-                }}
-                style={styles.tryAgainBtn}
-                activeOpacity={0.75}>
-                <Paragraph style={styles.tryAgainText}>Try Different Settings</Paragraph>
-              </TouchableOpacity>
-            </View>
-          )}
-
-          {/* ════════════════════════════════════
-              STATE: ERROR
-              ════════════════════════════════════ */}
-          {editorState === 'error' && (
-            <View style={styles.errorContainer}>
-              <View style={styles.errorIconWrap}>
-                <Paragraph style={styles.errorIcon}>!</Paragraph>
-              </View>
-              <Paragraph style={styles.errorTitle}>Processing Failed</Paragraph>
-              <Paragraph style={styles.errorMessage}>{errorMessage}</Paragraph>
-
-              <View style={styles.errorTips}>
-                <Paragraph style={styles.errorTipsTitle}>Tips for better results:</Paragraph>
-                {[
-                  'Try describing your edit more specifically',
-                  'Shorter videos process faster and more reliably',
-                  'Make sure your video has clear audio and visuals',
-                  'Check your internet connection if the error persists',
-                ].map((tip, i) => (
-                  <View key={i} style={styles.errorTipRow}>
-                    <Paragraph style={styles.errorBullet}>-</Paragraph>
-                    <Paragraph style={styles.errorTipText}>{tip}</Paragraph>
-                  </View>
-                ))}
-              </View>
-
-              <TouchableOpacity onPress={handleRetry} activeOpacity={0.85}>
-                <LinearGradient
-                  colors={['#00D4FF', '#00FFB3']}
-                  start={{x: 0, y: 0}}
-                  end={{x: 1, y: 0}}
-                  style={styles.retryBtn}>
-                  <Paragraph style={styles.retryBtnText}>TRY AGAIN</Paragraph>
-                </LinearGradient>
-              </TouchableOpacity>
-            </View>
-          )}
+          {editorState === 'select' && renderSelect()}
+          {editorState === 'editor' && renderEditor()}
+          {/* AI Edit disabled for v1 launch */}
+          {editorState === 'viral_processing' && renderViralProcessing()}
+          {editorState === 'viral_preview' && renderViralPreview()}
         </Animated.View>
       </ScrollView>
     </LinearGradient>
   );
 }
 
-// ════════════════════════════════════════
-// STYLES
-// ════════════════════════════════════════
-
+// ── Styles ──
 const styles = StyleSheet.create({
   container: {flex: 1},
-  content: {padding: 24, paddingTop: Platform.OS === 'ios' ? 60 : 40, paddingBottom: 60},
+  content: {paddingBottom: 40},
 
-  // ── Header ──
-  header: {flexDirection: 'row', alignItems: 'flex-start', marginBottom: 20},
+  // Header
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingTop: Platform.OS === 'ios' ? 60 : 16,
+    paddingBottom: 12,
+  },
   backBtn: {
-    width: 40, height: 40, borderRadius: 12,
-    backgroundColor: '#0C1220', borderWidth: 1, borderColor: '#1E293B',
-    justifyContent: 'center', alignItems: 'center', marginRight: 14,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#0C1220',
+    borderWidth: 1,
+    borderColor: '#1E293B',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
   },
-  backBtnText: {fontSize: 22, color: '#00D4FF', fontWeight: '600', marginTop: -2},
-  headerBadge: {flexDirection: 'row', alignItems: 'center', marginBottom: 4},
-  headerDot: {width: 6, height: 6, borderRadius: 3, backgroundColor: '#00FFB3', marginRight: 8},
-  headerBadgeText: {fontSize: 11, color: '#00FFB3', letterSpacing: 2, fontWeight: '700'},
-  title: {fontSize: 28, fontWeight: '900', color: '#E2F0FF'},
-  veoBadge: {borderRadius: 10, overflow: 'hidden'},
-  veoBadgeGrad: {paddingHorizontal: 12, paddingVertical: 6},
-  veoBadgeText: {fontSize: 11, fontWeight: '900', color: '#050810', letterSpacing: 1},
+  backBtnText: {color: '#00D4FF', fontSize: 20, lineHeight: 22},
+  title: {color: '#FFFFFF', fontSize: 22, fontWeight: '700'},
 
-  intro: {fontSize: 14, color: '#64748B', lineHeight: 22, marginBottom: 24},
+  // Select state
+  selectContainer: {alignItems: 'center', paddingTop: 80, paddingHorizontal: 32},
+  selectIcon: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: 'rgba(0,212,255,0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  selectIconText: {fontSize: 36},
+  selectTitle: {color: '#FFFFFF', fontSize: 24, fontWeight: '700', marginBottom: 8},
+  selectDesc: {color: '#94A3B8', fontSize: 14, textAlign: 'center', marginBottom: 32, lineHeight: 20},
+  selectBtn: {
+    paddingVertical: 16,
+    paddingHorizontal: 48,
+    borderRadius: 12,
+  },
+  selectBtnText: {color: '#050810', fontSize: 16, fontWeight: '700', textAlign: 'center'},
 
-  // ── Section header ──
-  sectionHeader: {flexDirection: 'row', alignItems: 'center', marginBottom: 12},
-  sectionLabel: {fontSize: 11, color: '#64748B', letterSpacing: 2, fontWeight: '700'},
-  dot: {width: 6, height: 6, borderRadius: 3, backgroundColor: '#00D4FF', marginRight: 10},
+  // Editor state
+  editorContainer: {paddingHorizontal: 16},
 
-  // ── SELECT STATE ──
-  uploadArea: {
-    borderWidth: 1, borderColor: '#1E293B', borderStyle: 'dashed',
-    borderRadius: 16, padding: 40, alignItems: 'center', marginBottom: 28,
+  // Video player
+  videoContainer: {
+    width: '100%',
+    aspectRatio: 9 / 16,
+    maxHeight: 400,
+    backgroundColor: '#000',
+    borderRadius: 12,
+    overflow: 'hidden',
+    marginBottom: 12,
   },
-  uploadIconWrap: {marginBottom: 16},
-  uploadIconBg: {
-    width: 80, height: 80, borderRadius: 40,
-    justifyContent: 'center', alignItems: 'center',
-    backgroundColor: '#111827', borderWidth: 1.5, borderColor: '#00D4FF40',
-    overflow: 'visible',
-  },
-  uploadIcon: {fontSize: 36, lineHeight: 44, textAlign: 'center'},
-  uploadTitle: {fontSize: 18, fontWeight: '900', color: '#E2F0FF', marginBottom: 6},
-  uploadSub: {fontSize: 13, color: '#64748B'},
-  howItWorks: {
-    backgroundColor: '#0C1220', borderWidth: 1, borderColor: '#1E293B',
-    borderRadius: 16, padding: 18,
-  },
-  howStep: {flexDirection: 'row', alignItems: 'center', marginBottom: 14},
-  howStepNum: {
-    width: 28, height: 28, borderRadius: 14,
-    backgroundColor: '#00D4FF15', borderWidth: 1, borderColor: '#00D4FF30',
-    justifyContent: 'center', alignItems: 'center', marginRight: 14,
-  },
-  howStepNumText: {fontSize: 13, fontWeight: '900', color: '#00D4FF'},
-  howStepText: {flex: 1, fontSize: 13, color: '#94A3B8', lineHeight: 20},
-
-  // ── EDIT STATE ──
-  videoPlayerWrap: {
-    backgroundColor: '#000', borderRadius: 14, overflow: 'hidden',
-    marginBottom: 12, position: 'relative', aspectRatio: 9 / 16,
-    maxHeight: SCREEN_WIDTH * 0.85, alignSelf: 'center',
-  },
-  videoPlayer: {width: '100%', height: '100%'},
+  video: {width: '100%', height: '100%'},
   playOverlay: {
     ...StyleSheet.absoluteFillObject,
-    justifyContent: 'center', alignItems: 'center',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.3)',
   },
-  playBtn: {
-    width: 56, height: 56, borderRadius: 28,
-    backgroundColor: 'rgba(0,212,255,0.85)',
-    justifyContent: 'center', alignItems: 'center',
+  playButton: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: 'rgba(0,212,255,0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  playBtnText: {fontSize: 24, color: '#050810', fontWeight: '900', marginLeft: 3},
-  timeBadge: {
-    position: 'absolute', bottom: 10, right: 10,
-    backgroundColor: 'rgba(5,8,16,0.85)', borderRadius: 6,
-    paddingHorizontal: 8, paddingVertical: 4,
-  },
-  timeBadgeText: {fontSize: 11, color: '#E2F0FF', fontWeight: '600'},
+  playIcon: {color: '#FFFFFF', fontSize: 24, marginLeft: 4},
 
-  // Applied edits badge
-  editsAppliedBadge: {
-    flexDirection: 'row', alignItems: 'center',
-    backgroundColor: '#00FFB310', borderWidth: 1, borderColor: '#00FFB330',
-    borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6, marginBottom: 12,
+  // Caption overlay
+  captionOverlay: {
+    position: 'absolute',
+    bottom: 40,
+    left: 12,
+    right: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  editsAppliedDot: {
-    width: 8, height: 8, borderRadius: 4,
-    backgroundColor: '#00FFB3', marginRight: 8,
+  captionWordRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
   },
-  editsAppliedText: {fontSize: 12, color: '#00FFB3', fontWeight: '700'},
-
-  // ── Glow effect ──
-  generateGlow: {
-    height: 16, marginHorizontal: 40, borderRadius: 8,
-    backgroundColor: '#00D4FF', opacity: 0.15, marginTop: -4, marginBottom: 12,
-  },
-
-  // ── Download button ──
-  downloadWrap: {marginTop: 16, marginBottom: 10},
-  downloadBtn: {
-    paddingVertical: 15, borderRadius: 14, alignItems: 'center',
-    backgroundColor: '#0C1220', borderWidth: 1, borderColor: '#00D4FF40',
-  },
-  downloadBtnTextOutline: {fontSize: 14, fontWeight: '900', color: '#00D4FF', letterSpacing: 2},
-  downloadingRow: {flexDirection: 'row', alignItems: 'center', justifyContent: 'center'},
-
-  // ── New video / disclaimer ──
-  newVideoBtn: {paddingVertical: 12, alignItems: 'center', marginBottom: 8},
-  newVideoText: {fontSize: 13, color: '#64748B'},
-  disclaimer: {fontSize: 12, color: '#334155', textAlign: 'center', lineHeight: 18},
-
-  // ── GENERATING STATE ──
-  genContainer: {alignItems: 'center', paddingTop: 20},
-  genOrb: {marginBottom: 32},
-  genOrbOuter: {
-    width: 120, height: 120, borderRadius: 60,
-    borderWidth: 1, borderColor: '#00D4FF30',
-    justifyContent: 'center', alignItems: 'center',
-  },
-  genOrbInner: {
-    width: 90, height: 90, borderRadius: 45,
-    justifyContent: 'center', alignItems: 'center',
-    shadowColor: '#00D4FF', shadowOpacity: 0.8, shadowRadius: 20,
-  },
-  genTitle: {fontSize: 22, fontWeight: '900', color: '#E2F0FF', marginBottom: 12, textAlign: 'center'},
-  genStatus: {fontSize: 14, color: '#64748B', textAlign: 'center', marginBottom: 28, lineHeight: 22},
-  progressWrap: {
-    width: '100%', height: 4, backgroundColor: '#1E293B',
-    borderRadius: 2, overflow: 'hidden', marginBottom: 32,
-  },
-  progressBar: {
-    height: '100%', borderRadius: 2, backgroundColor: '#00D4FF',
-    shadowColor: '#00D4FF', shadowOpacity: 0.8, shadowRadius: 6,
-  },
-  genInfo: {
-    width: '100%', backgroundColor: '#0C1220',
-    borderWidth: 1, borderColor: '#1E293B', borderRadius: 14, padding: 16, marginBottom: 28,
-  },
-  genInfoRow: {flexDirection: 'row', alignItems: 'center', marginBottom: 12},
-  genInfoDot: {
-    width: 8, height: 8, borderRadius: 4,
-    backgroundColor: '#00D4FF', marginRight: 12,
-  },
-  genInfoText: {flex: 1, fontSize: 13, color: '#64748B', lineHeight: 20},
-  cancelBtn: {paddingVertical: 12},
-  cancelBtnText: {fontSize: 14, color: '#334155'},
-
-  // ── REVIEW STATE ──
-  reviewHeader: {alignItems: 'center', marginBottom: 20},
-  checkOrb: {
-    marginBottom: 14,
-  },
-  checkText: {fontSize: 48, textAlign: 'center'},
-  reviewTitle: {fontSize: 22, fontWeight: '900', color: '#E2F0FF', marginBottom: 8, textAlign: 'center', lineHeight: 32},
-  reviewSub: {fontSize: 13, color: '#64748B', textAlign: 'center', lineHeight: 20, paddingHorizontal: 12},
-
-  resultCard: {
-    backgroundColor: '#0C1220', borderWidth: 1, borderColor: '#1E293B',
-    borderRadius: 16, overflow: 'hidden', marginBottom: 16, position: 'relative',
-  },
-  resultGlow: {
-    position: 'absolute', top: 0, left: 0, right: 0, height: 2,
-    backgroundColor: '#00FFB3', opacity: 0.7,
+  captionText: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    textAlign: 'center',
+    textShadowColor: 'rgba(0,0,0,0.8)',
+    textShadowOffset: {width: 2, height: 2},
+    textShadowRadius: 4,
   },
 
-  reviewPlayerWrap: {backgroundColor: '#000', height: SCREEN_WIDTH * 1.2, position: 'relative'},
-  reviewPlayer: {width: '100%', height: '100%'},
-  reviewPlayerFallback: {
-    flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#111827',
+  // Filmstrip
+  filmstripContainer: {marginBottom: 16},
+  timeLabels: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 4,
+    marginBottom: 4,
   },
-  fallbackIcon: {fontSize: 32, color: '#334155', fontWeight: '900', marginBottom: 8},
-  fallbackText: {fontSize: 14, color: '#64748B'},
-  reviewPlayOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    justifyContent: 'center', alignItems: 'center',
-  },
-  reviewPlayBtn: {
-    width: 64, height: 64, borderRadius: 32,
-    backgroundColor: 'rgba(0,255,179,0.85)',
-    justifyContent: 'center', alignItems: 'center',
-  },
-  reviewPlayBtnText: {fontSize: 26, color: '#050810', fontWeight: '900', marginLeft: 4},
-
-  videoErrorOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(5,8,16,0.9)', justifyContent: 'center',
-    alignItems: 'center', padding: 24,
-  },
-  videoErrorIcon: {fontSize: 32, color: '#EF4444', fontWeight: '900', marginBottom: 12},
-  videoErrorText: {fontSize: 12, color: '#94A3B8', textAlign: 'center', lineHeight: 18, marginBottom: 16},
-  videoErrorDismiss: {
-    paddingHorizontal: 20, paddingVertical: 8, borderRadius: 8,
+  timeText: {color: '#94A3B8', fontSize: 11},
+  filmstrip: {
+    height: FILMSTRIP_HEIGHT,
     backgroundColor: '#1E293B',
+    borderRadius: 8,
+    overflow: 'visible',
+    position: 'relative',
   },
-  videoErrorDismissText: {fontSize: 12, color: '#00D4FF', fontWeight: '700'},
+  thumbRow: {
+    flexDirection: 'row',
+    height: FILMSTRIP_HEIGHT,
+    borderRadius: 8,
+    overflow: 'hidden',
+  },
+  thumbImg: {height: FILMSTRIP_HEIGHT},
+  dimOverlay: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(5,8,16,0.7)',
+  },
+  selectionBorder: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    borderWidth: 2,
+    borderColor: '#00D4FF',
+    borderRadius: 4,
+  },
+  editedMarker: {
+    position: 'absolute',
+    bottom: 0,
+    height: 4,
+    backgroundColor: '#00FFB3',
+    borderRadius: 2,
+  },
+  handle: {
+    position: 'absolute',
+    top: -4,
+    bottom: -4,
+    width: HANDLE_WIDTH,
+    backgroundColor: '#00D4FF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10,
+  },
+  handleLeft: {
+    borderTopLeftRadius: 6,
+    borderBottomLeftRadius: 6,
+  },
+  handleRight: {
+    borderTopRightRadius: 6,
+    borderBottomRightRadius: 6,
+  },
+  handleBar: {
+    width: 3,
+    height: 20,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 2,
+  },
+  playhead: {
+    position: 'absolute',
+    top: -6,
+    bottom: -6,
+    width: 2,
+    backgroundColor: '#FFFFFF',
+    zIndex: 5,
+  },
+  selectAllBtn: {alignSelf: 'flex-end', marginTop: 4, paddingHorizontal: 8, paddingVertical: 2},
+  selectAllText: {color: '#00D4FF', fontSize: 12},
 
-  reviewMeta: {
-    flexDirection: 'row', alignItems: 'center',
-    paddingHorizontal: 14, paddingVertical: 10, backgroundColor: '#0C1220',
+  // Tool buttons
+  toolScroll: {
+    marginBottom: 16,
   },
-  reviewMetaBadge: {
-    paddingHorizontal: 8, paddingVertical: 3, borderRadius: 4,
-    backgroundColor: '#00FFB320', borderWidth: 1, borderColor: '#00FFB340',
-    marginRight: 10,
+  toolBtn: {
+    alignItems: 'center',
+    backgroundColor: '#0C1220',
+    borderWidth: 1,
+    borderColor: '#1E293B',
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    minWidth: 72,
+    marginRight: 8,
   },
-  reviewMetaBadgeText: {fontSize: 9, fontWeight: '900', color: '#00FFB3', letterSpacing: 1},
-  reviewMetaText: {flex: 1, fontSize: 12, color: '#64748B', lineHeight: 18},
+  toolBtnActive: {
+    borderColor: '#00D4FF',
+    backgroundColor: 'rgba(0,212,255,0.08)',
+  },
+  toolIcon: {fontSize: 18, marginBottom: 2},
+  toolLabel: {color: '#94A3B8', fontSize: 11},
 
-  editSummaryCard: {
-    backgroundColor: '#0C1220', borderWidth: 1, borderColor: '#1E293B',
-    borderRadius: 14, padding: 16, marginBottom: 16,
-  },
-  editSummaryRow: {marginBottom: 4},
-  editSummaryLabel: {fontSize: 10, color: '#64748B', letterSpacing: 1.5, fontWeight: '700', marginBottom: 4},
-  editSummaryValue: {fontSize: 13, color: '#E2F0FF', lineHeight: 20},
-
-  satisfiedBtn: {paddingVertical: 18, borderRadius: 14, alignItems: 'center'},
-  satisfiedBtnText: {fontSize: 15, fontWeight: '900', color: '#050810', letterSpacing: 2},
-
-  tryAgainBtn: {
-    backgroundColor: '#0C1220', borderWidth: 1, borderColor: '#1E293B',
-    borderRadius: 14, paddingVertical: 15, alignItems: 'center', marginTop: 10, marginBottom: 24,
-  },
-  tryAgainText: {fontSize: 14, color: '#00D4FF', fontWeight: '600'},
-
-  // ── ERROR STATE ──
-  errorContainer: {alignItems: 'center', paddingTop: 20},
-  errorIconWrap: {
-    width: 80, height: 80, borderRadius: 40,
-    backgroundColor: '#EF444420', borderWidth: 1, borderColor: '#EF444440',
-    justifyContent: 'center', alignItems: 'center', marginBottom: 20,
-  },
-  errorIcon: {fontSize: 36, color: '#EF4444', fontWeight: '900'},
-  errorTitle: {fontSize: 22, fontWeight: '900', color: '#EF4444', marginBottom: 12, textAlign: 'center'},
-  errorMessage: {fontSize: 14, color: '#64748B', textAlign: 'center', lineHeight: 22, marginBottom: 24},
-  errorTips: {
-    width: '100%', backgroundColor: '#0C1220',
-    borderWidth: 1, borderColor: '#1E293B', borderRadius: 14, padding: 16, marginBottom: 28,
-  },
-  errorTipsTitle: {fontSize: 13, fontWeight: '700', color: '#94A3B8', marginBottom: 12},
-  errorTipRow: {flexDirection: 'row', alignItems: 'flex-start', marginBottom: 8},
-  errorBullet: {color: '#64748B', marginRight: 10, fontSize: 14},
-  errorTipText: {flex: 1, fontSize: 13, color: '#64748B', lineHeight: 20},
-  retryBtn: {paddingVertical: 17, paddingHorizontal: 48, borderRadius: 14, alignItems: 'center'},
-  retryBtnText: {fontSize: 14, fontWeight: '900', color: '#050810', letterSpacing: 2},
-
-  // ── AI EDIT PANEL ──
+  // Tool panels (shared)
   toolPanel: {
-    backgroundColor: '#0C1220', borderWidth: 1, borderColor: '#1E293B',
-    borderRadius: 14, padding: 16, marginBottom: 16,
+    backgroundColor: '#0C1220',
+    borderWidth: 1,
+    borderColor: '#1E293B',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
   },
-  toolPanelTitle: {fontSize: 16, fontWeight: '900', color: '#E2F0FF', marginBottom: 14},
-  toolPanelSub: {fontSize: 11, color: '#64748B', letterSpacing: 1.5, fontWeight: '700', marginBottom: 8, marginTop: 12},
-  toolApplyBtn: {paddingVertical: 14, borderRadius: 12, alignItems: 'center', marginTop: 16},
-  toolApplyBtnText: {fontSize: 13, fontWeight: '900', color: '#050810', letterSpacing: 2},
+  panelSubLabel: {
+    color: '#94A3B8',
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 0.5,
+    marginTop: 12,
+    marginBottom: 6,
+  },
+  panelHint: {color: '#64748B', fontSize: 12, marginBottom: 8},
 
-  aiEditInput: {
-    backgroundColor: '#111827', borderWidth: 1, borderColor: '#1E293B',
-    borderRadius: 12, padding: 14, color: '#E2F0FF', fontSize: 14,
-    minHeight: 100, maxHeight: 160, marginTop: 8, lineHeight: 20,
+  // Chips (shared)
+  chipScroll: {marginBottom: 4},
+  chip: {
+    backgroundColor: '#050810',
+    borderWidth: 1,
+    borderColor: '#1E293B',
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    marginRight: 8,
   },
-  aiEditHint: {fontSize: 11, color: '#334155', marginTop: 6, textAlign: 'right'},
+  chipActive: {
+    borderColor: '#00D4FF',
+    backgroundColor: 'rgba(0,212,255,0.12)',
+  },
+  chipText: {color: '#94A3B8', fontSize: 12, fontWeight: '600'},
+  chipTextActive: {color: '#00D4FF'},
+  chipLabel: {color: '#94A3B8', fontSize: 10, textAlign: 'center'},
+
+  // Font style chips
+  fontChip: {
+    backgroundColor: '#050810',
+    borderWidth: 1,
+    borderColor: '#1E293B',
+    borderRadius: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    marginRight: 8,
+    alignItems: 'center',
+    minWidth: 60,
+  },
+
+  // Caption panel
+  captionTopRow: {marginBottom: 4},
+  captionGenBtn: {
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  captionGenText: {color: '#050810', fontSize: 13, fontWeight: '700'},
+  captionToggle: {
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#1E293B',
+    alignItems: 'center',
+  },
+  captionToggleActive: {
+    backgroundColor: '#00FFB3',
+    borderColor: '#00FFB3',
+  },
+  captionToggleText: {color: '#94A3B8', fontSize: 13, fontWeight: '700'},
+
+  // Speed panel
+  speedRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  speedBtn: {
+    backgroundColor: '#050810',
+    borderWidth: 1,
+    borderColor: '#1E293B',
+    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 18,
+  },
+  speedBtnActive: {
+    borderColor: '#00D4FF',
+    backgroundColor: 'rgba(0,212,255,0.12)',
+  },
+  speedBtnText: {color: '#94A3B8', fontSize: 14, fontWeight: '700'},
+  speedBtnTextActive: {color: '#00D4FF'},
+
+  // Filter panel
+  filterChip: {
+    backgroundColor: '#050810',
+    borderWidth: 1,
+    borderColor: '#1E293B',
+    borderRadius: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    marginRight: 8,
+    alignItems: 'center',
+    minWidth: 56,
+  },
+  filterDot: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    marginBottom: 4,
+  },
+
+  // AI Edit section
+  aiSection: {
+    backgroundColor: '#0C1220',
+    borderWidth: 1,
+    borderColor: '#1E293B',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+  },
+  sectionLabel: {color: '#00D4FF', fontSize: 12, fontWeight: '700', letterSpacing: 1, marginBottom: 8},
+  aiHint: {color: '#64748B', fontSize: 12, marginBottom: 12},
+  aiInput: {
+    backgroundColor: '#050810',
+    borderWidth: 1,
+    borderColor: '#1E293B',
+    borderRadius: 8,
+    padding: 12,
+    color: '#FFFFFF',
+    fontSize: 14,
+    minHeight: 60,
+    textAlignVertical: 'top',
+    marginBottom: 12,
+  },
+  aiBtn: {
+    paddingVertical: 14,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  aiBtnText: {color: '#050810', fontSize: 14, fontWeight: '700'},
+
+  // Segment list
+  segmentList: {marginBottom: 20},
+  segmentItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#0C1220',
+    borderWidth: 1,
+    borderColor: '#1E293B',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 6,
+  },
+  segmentItemEdited: {borderColor: '#00FFB3'},
+  segmentInfo: {flex: 1},
+  segmentTime: {color: '#FFFFFF', fontSize: 13, fontWeight: '600'},
+  segmentType: {color: '#64748B', fontSize: 11, marginTop: 2},
+  revertBtn: {
+    backgroundColor: '#1E293B',
+    borderRadius: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  revertText: {color: '#94A3B8', fontSize: 11},
+
+  // Bottom actions
+  bottomActions: {alignItems: 'center', marginBottom: 20},
+  exportBtn: {
+    paddingVertical: 16,
+    paddingHorizontal: 60,
+    borderRadius: 12,
+    marginBottom: 12,
+  },
+  exportBtnText: {color: '#050810', fontSize: 16, fontWeight: '700'},
+  newVideoBtn: {paddingVertical: 8},
+  newVideoText: {color: '#64748B', fontSize: 13},
+
+  // AI Processing
+  processingContainer: {
+    alignItems: 'center',
+    paddingTop: 60,
+    paddingHorizontal: 32,
+  },
+  processingTitle: {color: '#FFFFFF', fontSize: 20, fontWeight: '700', marginTop: 24},
+  processingStatus: {color: '#00D4FF', fontSize: 14, marginTop: 8},
+  processingHint: {color: '#64748B', fontSize: 12, marginTop: 4},
+  cancelBtn: {
+    marginTop: 32,
+    paddingVertical: 10,
+    paddingHorizontal: 24,
+    borderWidth: 1,
+    borderColor: '#1E293B',
+    borderRadius: 8,
+  },
+  cancelText: {color: '#94A3B8', fontSize: 13},
+
+  // AI Preview
+  previewContainer: {paddingHorizontal: 16, paddingTop: 8},
+  previewVideoContainer: {
+    width: '100%',
+    aspectRatio: 9 / 16,
+    maxHeight: 400,
+    backgroundColor: '#000',
+    borderRadius: 12,
+    overflow: 'hidden',
+    marginBottom: 12,
+  },
+  previewVideo: {width: '100%', height: '100%'},
+  previewPrompt: {color: '#94A3B8', fontSize: 13, textAlign: 'center', marginBottom: 20, fontStyle: 'italic'},
+  previewActions: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 16,
+  },
+  rejectBtn: {
+    paddingVertical: 14,
+    paddingHorizontal: 32,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#EF4444',
+  },
+  rejectText: {color: '#EF4444', fontSize: 14, fontWeight: '700'},
+  acceptBtn: {
+    paddingVertical: 14,
+    paddingHorizontal: 32,
+    borderRadius: 10,
+  },
+  acceptText: {color: '#050810', fontSize: 14, fontWeight: '700'},
+
+  // Make Viral button
+  makeViralBtn: {marginBottom: 12},
+  makeViralGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    borderRadius: 12,
+  },
+  makeViralIcon: {fontSize: 20, marginRight: 8},
+  makeViralText: {color: '#FFFFFF', fontSize: 16, fontWeight: '800', letterSpacing: 1},
+
+  // Niche picker
+  nichePickerOverlay: {
+    backgroundColor: 'rgba(5,8,16,0.95)',
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#1E293B',
+  },
+  nichePickerCard: {},
+  nichePickerDesc: {color: '#94A3B8', fontSize: 13, marginBottom: 16},
+  nicheChipGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 12,
+  },
+  nicheChip: {
+    backgroundColor: '#0C1220',
+    borderWidth: 1,
+    borderColor: '#1E293B',
+    borderRadius: 20,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+  },
+  nicheChipText: {color: '#94A3B8', fontSize: 13, fontWeight: '600'},
+  customNicheRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 8,
+  },
+  customNicheInput: {
+    flex: 1,
+    backgroundColor: '#050810',
+    borderWidth: 1,
+    borderColor: '#1E293B',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    color: '#FFFFFF',
+    fontSize: 14,
+  },
+  customNicheGoBtn: {
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+  },
+  customNicheGoText: {color: '#050810', fontSize: 14, fontWeight: '700'},
+  nichePickerCancel: {
+    alignSelf: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    marginTop: 4,
+  },
+
+  // Viral edit summary
+  viralSummaryBox: {
+    backgroundColor: '#0C1220',
+    borderWidth: 1,
+    borderColor: '#1E293B',
+    borderRadius: 10,
+    padding: 14,
+    marginBottom: 20,
+  },
+  viralSummaryLabel: {color: '#00FFB3', fontSize: 11, fontWeight: '700', letterSpacing: 0.5, marginBottom: 6},
+  viralSummaryText: {color: '#CBD5E1', fontSize: 13, lineHeight: 20},
 });
