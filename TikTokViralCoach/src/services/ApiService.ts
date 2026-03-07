@@ -429,6 +429,28 @@ export const ApiService = {
     return res.data; // { task_id, state, video_url?, edit_summary?, captions?, error_message? }
   },
 
+  /** Copy Style — upload reference video + user's video filename */
+  async editorCopyStyle(videoFilename: string, referenceUri: string) {
+    const formData = new FormData();
+    formData.append('video_filename', videoFilename);
+    formData.append('reference', {
+      uri: referenceUri,
+      type: 'video/mp4',
+      name: 'reference.mp4',
+    } as any);
+    const res = await api.post('/editor/copy-style', formData, {
+      headers: {'Content-Type': 'multipart/form-data'},
+      timeout: 60000,
+    });
+    return res.data; // { task_id, state }
+  },
+
+  /** Poll Copy Style task status */
+  async editorPollCopyStyle(taskId: string) {
+    const res = await api.get(`/editor/copy-style/status/${taskId}`, {timeout: 15000});
+    return res.data; // { task_id, state, video_url?, edit_summary?, captions?, error_message? }
+  },
+
   // ──────────────────────────────────────────
   // COACHING (existing)
   // ──────────────────────────────────────────

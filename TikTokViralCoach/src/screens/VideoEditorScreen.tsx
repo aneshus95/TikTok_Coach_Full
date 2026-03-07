@@ -576,6 +576,78 @@ export default function VideoEditorScreen({navigation}: any) {
     }
   };
 
+  // ── Copy Style ──
+  const handlePickReferenceVideo = async () => {
+    if (!videoFilename || editorState === 'viral_processing') return;
+    try {
+      const res = await DocumentPicker.pick({type: [DocumentPicker.types.video]});
+      const refUri = res[0]?.uri;
+      if (!refUri) return;
+      handleCopyStyle(refUri);
+    } catch (err: any) {
+      if (!DocumentPicker.isCancel(err)) {
+        Alert.alert('Error', 'Could not pick reference video');
+      }
+    }
+  };
+
+  const handleCopyStyle = async (referenceUri: string) => {
+    if (!videoFilename) return;
+    viralCancelledRef.current = false;
+    setEditorState('viral_processing');
+    setViralStatus('Analyzing reference style...');
+
+    try {
+      const data = await ApiService.editorCopyStyle(videoFilename, referenceUri);
+      setViralTaskId(data.task_id);
+
+      const maxWait = 60 * 60 * 1000;
+      const start = Date.now();
+
+      while (Date.now() - start < maxWait) {
+        if (viralCancelledRef.current) return;
+        await new Promise(r => setTimeout(r, 5000));
+        if (viralCancelledRef.current) return;
+
+        try {
+          const status = await ApiService.editorPollCopyStyle(data.task_id);
+
+          if (status.state === 'SUCCEEDED') {
+            if (viralCancelledRef.current) return;
+            setViralPreviewUrl(status.video_url);
+            setViralEditSummary(status.edit_summary || '');
+            if (Array.isArray(status.captions) && status.captions.length > 0) {
+              setCaptionWords(status.captions);
+              setCaptionEnabled(true);
+            }
+            setEditorState('viral_preview');
+            return;
+          }
+
+          if (status.state === 'FAILED') {
+            throw new Error(status.error_message || 'Copy Style failed');
+          }
+
+          const statusMap: Record<string, string> = {
+            'ANALYZING': 'Analyzing reference style...',
+            'TRANSCRIBING': 'Transcribing your video...',
+            'RESEARCHING': 'Researching edit techniques...',
+            'RENDERING': 'Rendering styled edit...',
+          };
+          setViralStatus(statusMap[status.state] || 'Processing...');
+        } catch (pollErr: any) {
+          if (pollErr.message?.includes('failed')) throw pollErr;
+        }
+      }
+      throw new Error('Timed out');
+    } catch (err: any) {
+      if (viralCancelledRef.current) return;
+      const msg = err?.response?.data?.error || err?.message || 'Something went wrong.';
+      Alert.alert('Copy Style Failed', msg);
+      setEditorState('editor');
+    }
+  };
+
   // ── Transcribe (Auto Captions) ──
   const handleTranscribe = async () => {
     if (!videoFilename) return;
@@ -1250,6 +1322,19 @@ export default function VideoEditorScreen({navigation}: any) {
         >
           <Paragraph style={styles.makeViralIcon}>{'🔥'}</Paragraph>
           <Paragraph style={styles.makeViralText}>MAKE VIRAL</Paragraph>
+        </LinearGradient>
+      </TouchableOpacity>
+
+      {/* Copy Style Button */}
+      <TouchableOpacity onPress={handlePickReferenceVideo} style={styles.makeViralBtn}>
+        <LinearGradient
+          colors={['#7C3AED', '#2563EB']}
+          start={{x: 0, y: 0}}
+          end={{x: 1, y: 0}}
+          style={styles.makeViralGradient}
+        >
+          <Paragraph style={styles.makeViralIcon}>{'🎬'}</Paragraph>
+          <Paragraph style={styles.makeViralText}>COPY STYLE</Paragraph>
         </LinearGradient>
       </TouchableOpacity>
 
