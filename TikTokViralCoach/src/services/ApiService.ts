@@ -489,6 +489,14 @@ export const ApiService = {
     return response.data;
   },
 
+  async rewriteScript(originalScript: string, niche: string) {
+    const response = await api.post('/coaching/rewrite-script', {
+      original_script: originalScript,
+      niche,
+    }, { timeout: 120000 });
+    return response.data;
+  },
+
   async fetchViralResearch(analysisId: string) {
     const response = await api.post('/viral-research', { analysis_id: analysisId }, { timeout: 120000 });
     return response.data;

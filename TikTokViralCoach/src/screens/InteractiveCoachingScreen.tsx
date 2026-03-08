@@ -17,6 +17,7 @@ import {
   Platform,
   Dimensions,
   Linking,
+  ActivityIndicator,
 } from 'react-native';
 import { Title, Paragraph } from 'react-native-paper';
 import LinearGradient from 'react-native-linear-gradient';
@@ -50,6 +51,14 @@ interface ViralInsight {
   _trending_sounds?: string[];
 }
 
+interface CoachingExtras {
+  strengths?: { what: string; why_it_matters: string }[];
+  improvements?: { what: string; how: string; impact: string }[];
+  creative_ideas?: { idea: string; inspiration: string; how_to_execute: string }[];
+  snapshot?: { honest_take?: string; keep_this?: string; fix_this?: string };
+  posting_strategy?: { caption?: string; first_comment?: string; best_time?: string };
+}
+
 export default function InteractiveCoachingScreen({ route, navigation }: any) {
   const {
     videoUri,
@@ -58,6 +67,8 @@ export default function InteractiveCoachingScreen({ route, navigation }: any) {
     duration: videoDuration = 30,
     timestamps: passedTimestamps = [],
     viralInsights: passedViralInsights = [],
+    extras: passedExtras = {} as CoachingExtras,
+    scriptData: passedScriptData = null,
   } = route.params;
 
   const videoRef = useRef<any>(null);
@@ -72,21 +83,23 @@ export default function InteractiveCoachingScreen({ route, navigation }: any) {
   const [suggestions] = useState<TimestampSuggestion[]>(passedTimestamps);
   const [viralInsights, setViralInsights] = useState<ViralInsight[]>(passedViralInsights);
   const [viralLoading, setViralLoading] = useState(false);
+  const [extras] = useState<CoachingExtras>(passedExtras);
+  const [nicheHooks, setNicheHooks] = useState<{technique?: string; visual?: string; audio?: string; text_overlay?: string}[]>([]);
+  const [rewriteLoading, setRewriteLoading] = useState(false);
+  const [rewrites, setRewrites] = useState<any[]>([]);
+  const [showRewrites, setShowRewrites] = useState(false);
 
-  // Fetch viral insights in background (separate from upload to avoid worker crash)
+  // Load niche hooks from playbook
   useEffect(() => {
-    if (viralInsights.length === 0 && analysisId) {
-      setViralLoading(true);
-      ApiService.fetchViralResearch(analysisId)
-        .then((res) => {
-          if (res.viral_insights && res.viral_insights.length > 0) {
-            setViralInsights(res.viral_insights);
-          }
-        })
-        .catch((err) => console.log('Viral research fetch failed:', err))
-        .finally(() => setViralLoading(false));
+    if (niche) {
+      ApiService.getNicheHooks(niche)
+        .then(data => setNicheHooks(data.hooks || []))
+        .catch(() => {});
     }
-  }, [analysisId]);
+  }, [niche]);
+
+  // Viral research disabled — saving for Instagram feature
+  // useEffect(() => { ... fetchViralResearch ... }, [analysisId]);
 
   useEffect(() => {
     if (videoLoaded && suggestions.length > 0 && !showSuggestion) {
@@ -121,13 +134,34 @@ export default function InteractiveCoachingScreen({ route, navigation }: any) {
       setPaused(false);
     } else {
       setPaused(true);
-      setShowViralInsights(true);
     }
   };
 
   const seekTo = (seconds: number) => {
     videoRef.current?.seek(seconds);
     setCurrentTime(seconds);
+  };
+
+  const handleRewriteScript = async () => {
+    // Build original script from timestamp observations
+    const originalScript = suggestions
+      .map(s => s.issues.map(iss => typeof iss === 'string' ? iss : '').join(' '))
+      .filter(Boolean)
+      .join(' ');
+
+    // Fallback: use snapshot honest_take if no observations
+    const scriptText = originalScript || extras?.snapshot?.honest_take || 'No script available';
+
+    setRewriteLoading(true);
+    try {
+      const result = await ApiService.rewriteScript(scriptText, niche);
+      setRewrites(result.rewrites || []);
+      setShowRewrites(true);
+    } catch (err: any) {
+      console.error('Rewrite failed:', err);
+    } finally {
+      setRewriteLoading(false);
+    }
   };
 
   const currentSuggestion = suggestions[currentSuggestionIndex];
@@ -390,196 +424,286 @@ export default function InteractiveCoachingScreen({ route, navigation }: any) {
           </View>
         )}
 
-        {/* ─── Viral Insights card ─────────────────────────────── */}
-        {showViralInsights && viralLoading && viralInsights.length === 0 && (
-          <View style={styles.viralCard}>
-            <LinearGradient
-              colors={['#FF6B00', '#FF2D87']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={{ padding: 16, borderTopLeftRadius: 16, borderTopRightRadius: 16 }}
-            >
-              <Title style={{ fontSize: 18, fontWeight: '900', color: '#FFF' }}>
-                Researching Top Creators...
-              </Title>
-            </LinearGradient>
-            <View style={{ padding: 32, alignItems: 'center' }}>
-              <LoadingAnimation size={120} />
-              <Paragraph style={{ color: '#94A3B8', marginTop: 16, textAlign: 'center', fontSize: 13 }}>
-                Searching for viral videos with similar content in {niche}
-              </Paragraph>
-            </View>
-            <TouchableOpacity
-              onPress={() => navigation.navigate('Dashboard')}
-              style={[styles.skipBtn, { marginHorizontal: 16, marginBottom: 16 }]}
-            >
-              <Paragraph style={styles.skipText}>skip to dashboard →</Paragraph>
-            </TouchableOpacity>
-          </View>
-        )}
-        {showViralInsights && !viralLoading && viralInsights.length === 0 && (
-          <View style={styles.viralCard}>
-            <View style={{ padding: 32, alignItems: 'center' }}>
-              <Paragraph style={{ color: '#94A3B8', textAlign: 'center', fontSize: 14 }}>
-                No viral research available for this video.
-              </Paragraph>
-            </View>
-            <TouchableOpacity
-              onPress={() => navigation.navigate('Dashboard')}
-              style={[styles.skipBtn, { marginHorizontal: 16, marginBottom: 16 }]}
-            >
-              <Paragraph style={styles.skipText}>go to dashboard →</Paragraph>
-            </TouchableOpacity>
-          </View>
-        )}
-        {showViralInsights && viralInsights.length > 0 && (
-          <View style={styles.viralCard}>
-            <LinearGradient
-              colors={['#FF6B00', '#FF2D87']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={styles.cardTopBar}
-            />
+        {/* ─── Coaching summary cards after all timestamps ─────────── */}
+        {currentSuggestionIndex >= suggestions.length - 1 && !showSuggestion && (
+          <View style={{ marginTop: 12 }}>
 
-            {/* Header */}
-            <View style={styles.cardHeader}>
-              <Paragraph style={styles.cardEmoji}>🔥</Paragraph>
-              <View style={styles.cardTitleBlock}>
-                <View style={styles.labelRow}>
-                  <View style={[styles.dot, { backgroundColor: '#FF6B00' }]} />
-                  <Paragraph style={[styles.cardLabel, { color: '#FF6B00' }]}>VIRAL RESEARCH</Paragraph>
+            {/* Strengths Card */}
+            {extras.strengths && extras.strengths.length > 0 && (
+              <View style={styles.extrasCard}>
+                <View style={[styles.extrasTopBar, { backgroundColor: '#00FFB3' }]} />
+                <View style={styles.extrasHeader}>
+                  <Paragraph style={styles.extrasEmoji}>{'💪'}</Paragraph>
+                  <View style={{ flex: 1 }}>
+                    <View style={styles.sectionLabelRow}>
+                      <View style={[styles.dot, { backgroundColor: '#00FFB3' }]} />
+                      <Paragraph style={[styles.sectionLabelText, { color: '#00FFB3' }]}>
+                        WHAT YOU'RE DOING WELL
+                      </Paragraph>
+                    </View>
+                  </View>
                 </View>
-                <Title style={[styles.cardTitle, { color: '#FF6B00' }]}>
-                  What Top Creators Did
-                </Title>
-                <Paragraph style={{ fontSize: 12, color: '#64748B', marginTop: 2 }}>
-                  Real viral videos with similar content in {niche}
-                </Paragraph>
-              </View>
-            </View>
-
-            {/* Content gap + winning format (from first insight's metadata) */}
-            {viralInsights[0]?._content_gap ? (
-              <View style={styles.viralGapCard}>
-                <View style={styles.sectionLabelRow}>
-                  <View style={[styles.dot, { backgroundColor: '#EF4444' }]} />
-                  <Paragraph style={[styles.sectionLabelText, { color: '#EF4444' }]}>
-                    WHAT YOUR VIDEO IS MISSING
-                  </Paragraph>
-                </View>
-                <Paragraph style={styles.listItemText}>{viralInsights[0]._content_gap}</Paragraph>
-              </View>
-            ) : null}
-
-            {viralInsights[0]?._winning_format ? (
-              <View style={styles.viralFormatCard}>
-                <View style={styles.sectionLabelRow}>
-                  <View style={[styles.dot, { backgroundColor: '#00FFB3' }]} />
-                  <Paragraph style={[styles.sectionLabelText, { color: '#00FFB3' }]}>
-                    WINNING FORMAT
-                  </Paragraph>
-                </View>
-                <Paragraph style={styles.listItemText}>{viralInsights[0]._winning_format}</Paragraph>
-              </View>
-            ) : null}
-
-            {/* Trending sounds */}
-            {viralInsights[0]?._trending_sounds && viralInsights[0]._trending_sounds.length > 0 ? (
-              <View style={styles.viralSoundsRow}>
-                <Paragraph style={{ fontSize: 10, color: '#64748B', letterSpacing: 1.5, fontWeight: '700', marginBottom: 8 }}>
-                  TRENDING SOUNDS
-                </Paragraph>
-                {viralInsights[0]._trending_sounds.map((sound, i) => (
-                  <View key={i} style={styles.soundChip}>
-                    <Paragraph style={styles.soundChipText}>🎵 {sound}</Paragraph>
+                {extras.strengths.map((s, i) => (
+                  <View key={i} style={styles.extrasItem}>
+                    <Paragraph style={styles.extrasItemTitle}>{s.what}</Paragraph>
+                    <Paragraph style={styles.extrasItemSub}>{s.why_it_matters}</Paragraph>
                   </View>
                 ))}
               </View>
-            ) : null}
+            )}
 
-            {/* Individual insights */}
-            {viralInsights.map((insight, i) => (
-              <View key={i} style={styles.viralInsightItem}>
-                <View style={styles.viralInsightHeader}>
-                  <View style={styles.viralRankBadge}>
-                    <Paragraph style={styles.viralRankText}>{i + 1}</Paragraph>
-                  </View>
+            {/* Improvements Card */}
+            {extras.improvements && extras.improvements.length > 0 && (
+              <View style={styles.extrasCard}>
+                <View style={[styles.extrasTopBar, { backgroundColor: '#F59E0B' }]} />
+                <View style={styles.extrasHeader}>
+                  <Paragraph style={styles.extrasEmoji}>{'📈'}</Paragraph>
                   <View style={{ flex: 1 }}>
-                    {insight.creator?.startsWith('@') && insight.tiktok_link ? (
-                      <TouchableOpacity onPress={() => Linking.openURL(insight.tiktok_link!)}>
-                        <Paragraph style={[styles.viralCreator, { color: '#00D4FF', textDecorationLine: 'underline' }]}>
-                          {insight.creator}
-                        </Paragraph>
-                      </TouchableOpacity>
-                    ) : (
-                      <Paragraph style={styles.viralCreator}>{insight.creator}</Paragraph>
-                    )}
-                    {insight.views ? (
-                      <Paragraph style={styles.viralViews}>{insight.views}</Paragraph>
+                    <View style={styles.sectionLabelRow}>
+                      <View style={[styles.dot, { backgroundColor: '#F59E0B' }]} />
+                      <Paragraph style={[styles.sectionLabelText, { color: '#F59E0B' }]}>
+                        AREAS TO IMPROVE
+                      </Paragraph>
+                    </View>
+                  </View>
+                </View>
+                {extras.improvements.map((imp, i) => (
+                  <View key={i} style={styles.extrasItem}>
+                    <Paragraph style={styles.extrasItemTitle}>{imp.what}</Paragraph>
+                    <Paragraph style={styles.extrasItemSub}>{imp.how}</Paragraph>
+                    {imp.impact ? (
+                      <View style={styles.impactBadge}>
+                        <Paragraph style={styles.impactText}>{imp.impact}</Paragraph>
+                      </View>
                     ) : null}
                   </View>
-                </View>
-
-                {insight.tiktok_link ? (
-                  <TouchableOpacity
-                    onPress={() => Linking.openURL(insight.tiktok_link!)}
-                    style={styles.tiktokLinkBtn}
-                  >
-                    <Paragraph style={styles.tiktokLinkText}>
-                      {insight.tiktok_link.includes('tiktok.com/search') ? 'Find Similar TikToks ↗'
-                        : insight.tiktok_link.includes('tiktok.com/') ? 'View on TikTok ↗'
-                        : 'View Source ↗'}
-                    </Paragraph>
-                  </TouchableOpacity>
-                ) : null}
-
-                <Paragraph style={styles.viralWhat}>{insight.what_they_did}</Paragraph>
-
-                <View style={styles.viralWhyBox}>
-                  <Paragraph style={{ fontSize: 9, color: '#FF6B00', letterSpacing: 1.5, fontWeight: '700', marginBottom: 4 }}>
-                    WHY IT WORKED
-                  </Paragraph>
-                  <Paragraph style={styles.listItemText}>{insight.why_it_worked}</Paragraph>
-                </View>
-
-                <View style={styles.viralIdeaBox}>
-                  <Paragraph style={{ fontSize: 9, color: '#00D4FF', letterSpacing: 1.5, fontWeight: '700', marginBottom: 4 }}>
-                    STEAL THIS IDEA
-                  </Paragraph>
-                  <Paragraph style={[styles.listItemText, { color: '#E2F0FF' }]}>{insight.idea_for_you}</Paragraph>
-                </View>
+                ))}
               </View>
-            ))}
+            )}
 
-            {/* Done */}
-            <TouchableOpacity
-              onPress={() => navigation.navigate('Dashboard')}
-              activeOpacity={0.85}
-            >
-              <LinearGradient
-                colors={['#FF6B00', '#FF2D87']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={styles.nextBtn}
+            {/* Creative Ideas Card */}
+            {extras.creative_ideas && extras.creative_ideas.length > 0 && (
+              <View style={styles.extrasCard}>
+                <View style={[styles.extrasTopBar, { backgroundColor: '#00D4FF' }]} />
+                <View style={styles.extrasHeader}>
+                  <Paragraph style={styles.extrasEmoji}>{'💡'}</Paragraph>
+                  <View style={{ flex: 1 }}>
+                    <View style={styles.sectionLabelRow}>
+                      <View style={[styles.dot, { backgroundColor: '#00D4FF' }]} />
+                      <Paragraph style={[styles.sectionLabelText, { color: '#00D4FF' }]}>
+                        CREATIVE IDEAS FOR YOU
+                      </Paragraph>
+                    </View>
+                  </View>
+                </View>
+                {extras.creative_ideas.map((idea, i) => (
+                  <View key={i} style={styles.ideaItem}>
+                    <View style={styles.ideaNumberBadge}>
+                      <Paragraph style={styles.ideaNumber}>{i + 1}</Paragraph>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Paragraph style={styles.extrasItemTitle}>{idea.idea}</Paragraph>
+                      {idea.inspiration ? (
+                        <Paragraph style={styles.ideaInspiration}>{idea.inspiration}</Paragraph>
+                      ) : null}
+                      {idea.how_to_execute ? (
+                        <Paragraph style={styles.extrasItemSub}>{idea.how_to_execute}</Paragraph>
+                      ) : null}
+                    </View>
+                  </View>
+                ))}
+              </View>
+            )}
+
+            {/* Hooks Library from Playbook */}
+            {nicheHooks.length > 0 && (
+              <View style={styles.extrasCard}>
+                <View style={[styles.extrasTopBar, { backgroundColor: '#E879F9' }]} />
+                <View style={styles.extrasHeader}>
+                  <Paragraph style={styles.extrasEmoji}>{'🪝'}</Paragraph>
+                  <View style={{ flex: 1 }}>
+                    <View style={styles.sectionLabelRow}>
+                      <View style={[styles.dot, { backgroundColor: '#E879F9' }]} />
+                      <Paragraph style={[styles.sectionLabelText, { color: '#E879F9' }]}>
+                        PROVEN HOOKS — {niche.toUpperCase()}
+                      </Paragraph>
+                    </View>
+                  </View>
+                </View>
+                {nicheHooks.map((hook, i) => (
+                  <View key={i} style={styles.extrasItem}>
+                    {hook.technique ? (
+                      <Paragraph style={styles.extrasItemTitle}>{hook.technique}</Paragraph>
+                    ) : null}
+                    {hook.text_overlay ? (
+                      <Paragraph style={[styles.extrasItemSub, { color: '#E879F9', fontStyle: 'italic' }]}>
+                        Text: "{hook.text_overlay}"
+                      </Paragraph>
+                    ) : null}
+                    {hook.visual ? (
+                      <Paragraph style={styles.extrasItemSub}>Visual: {hook.visual}</Paragraph>
+                    ) : null}
+                    {hook.audio ? (
+                      <Paragraph style={styles.extrasItemSub}>Audio: {hook.audio}</Paragraph>
+                    ) : null}
+                  </View>
+                ))}
+              </View>
+            )}
+
+            {/* Rewrite Script */}
+            <View style={{ paddingHorizontal: 16, marginTop: 12 }}>
+              {!showRewrites && (
+                <TouchableOpacity
+                  onPress={handleRewriteScript}
+                  disabled={rewriteLoading}
+                  activeOpacity={0.85}
+                  style={styles.rewriteBtn}
+                >
+                  {rewriteLoading ? (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
+                      <ActivityIndicator size="small" color="#E879F9" style={{ marginRight: 10 }} />
+                      <Paragraph style={styles.rewriteBtnText}>REWRITING YOUR SCRIPT...</Paragraph>
+                    </View>
+                  ) : (
+                    <Paragraph style={styles.rewriteBtnText}>REWRITE YOUR SCRIPT</Paragraph>
+                  )}
+                </TouchableOpacity>
+              )}
+
+              {showRewrites && rewrites.length > 0 && (
+                <View style={{ marginTop: 4 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 14 }}>
+                    <View style={[styles.dot, { backgroundColor: '#E879F9' }]} />
+                    <Paragraph style={[styles.sectionLabelText, { color: '#E879F9' }]}>
+                      SCRIPT REWRITES
+                    </Paragraph>
+                  </View>
+                  {rewrites.map((rw, i) => (
+                    <View key={i} style={styles.rewriteCard}>
+                      <View style={[styles.rewriteTopBar, {
+                        backgroundColor: i === 0 ? '#00D4FF' : i === 1 ? '#00FFB3' : '#F59E0B',
+                      }]} />
+                      <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
+                        <View style={[styles.rewriteBadge, {
+                          borderColor: i === 0 ? '#00D4FF' : i === 1 ? '#00FFB3' : '#F59E0B',
+                          backgroundColor: i === 0 ? '#00D4FF15' : i === 1 ? '#00FFB315' : '#F59E0B15',
+                        }]}>
+                          <Paragraph style={[styles.rewriteBadgeText, {
+                            color: i === 0 ? '#00D4FF' : i === 1 ? '#00FFB3' : '#F59E0B',
+                          }]}>{i + 1}</Paragraph>
+                        </View>
+                        <Paragraph style={styles.rewriteTitle}>{rw.style || `Rewrite ${i + 1}`}</Paragraph>
+                      </View>
+
+                      {rw.hook ? (
+                        <View style={styles.rewriteSection}>
+                          <Paragraph style={styles.rewriteSectionLabel}>HOOK</Paragraph>
+                          <Paragraph style={styles.rewriteText}>{rw.hook}</Paragraph>
+                        </View>
+                      ) : null}
+
+                      {rw.body ? (
+                        <View style={styles.rewriteSection}>
+                          <Paragraph style={styles.rewriteSectionLabel}>BODY</Paragraph>
+                          <Paragraph style={styles.rewriteText}>{rw.body}</Paragraph>
+                        </View>
+                      ) : null}
+
+                      {rw.cta ? (
+                        <View style={styles.rewriteSection}>
+                          <Paragraph style={styles.rewriteSectionLabel}>CTA</Paragraph>
+                          <Paragraph style={styles.rewriteText}>{rw.cta}</Paragraph>
+                        </View>
+                      ) : null}
+
+                      {rw.why_this_works ? (
+                        <View style={styles.rewriteWhyBox}>
+                          <Paragraph style={styles.rewriteWhyLabel}>WHY THIS WORKS</Paragraph>
+                          <Paragraph style={styles.rewriteWhyText}>{rw.why_this_works}</Paragraph>
+                        </View>
+                      ) : null}
+                    </View>
+                  ))}
+                </View>
+              )}
+            </View>
+
+            {/* Action buttons */}
+            <View style={{ paddingHorizontal: 16, marginTop: 8 }}>
+              {/* Write Next Script — loop nudge */}
+              <TouchableOpacity
+                onPress={() => {
+                  // Build coaching feedback summary
+                  const feedbackItems = suggestions.map(s =>
+                    `At ${s.timestamp}s (${s.title}): ${s.issues.join('. ')} → Fix: ${s.suggestions.join('. ')}`
+                  );
+                  const strengthsSummary = (extras.strengths || []).map(s => s.what).join(', ');
+                  const improvementsSummary = (extras.improvements || []).map(imp => `${imp.what}: ${imp.how}`).join('. ');
+
+                  navigation.navigate('ScriptWriter', {
+                    coachingFeedback: {
+                      niche,
+                      feedbackPoints: feedbackItems,
+                      strengths: strengthsSummary,
+                      improvements: improvementsSummary,
+                      usedAiScript: !!passedScriptData,
+                    },
+                  });
+                }}
+                activeOpacity={0.85}
               >
-                <Paragraph style={styles.nextBtnText}>
-                  BACK TO DASHBOARD  →
-                </Paragraph>
-              </LinearGradient>
-            </TouchableOpacity>
+                <LinearGradient
+                  colors={['#00D4FF', '#00FFB3']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.nextBtn}
+                >
+                  <Paragraph style={styles.nextBtnText}>
+                    WRITE YOUR NEXT SCRIPT  →
+                  </Paragraph>
+                </LinearGradient>
+              </TouchableOpacity>
 
-            <TouchableOpacity
-              onPress={() => {
-                setShowViralInsights(false);
-                setCurrentSuggestionIndex(0);
-                setShowSuggestion(true);
-                setPaused(true);
-                seekTo(suggestions[0]?.timestamp || 0);
-              }}
-              style={styles.skipBtn}
-            >
+              {/* Apply with AI Editor */}
+              <TouchableOpacity
+                onPress={() => {
+                  const fixesSummary = suggestions
+                    .flatMap(s => s.suggestions.map((fix, i) => `At ${s.timestamp}s: ${fix}`))
+                    .join('\n');
+                  navigation.navigate('VideoEditor', {
+                    coachingPrompt: fixesSummary,
+                    videoUri: videoUri,
+                  });
+                }}
+                activeOpacity={0.85}
+                style={styles.editorBtn}
+              >
+                <Paragraph style={styles.editorBtnText}>
+                  APPLY FIXES WITH AI EDITOR
+                </Paragraph>
+              </TouchableOpacity>
+
+              {/* Done */}
+              <TouchableOpacity
+                onPress={() => navigation.navigate('Dashboard')}
+                style={styles.skipBtn}
+              >
+                <Paragraph style={styles.skipText}>back to dashboard →</Paragraph>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={() => {
+                  setCurrentSuggestionIndex(0);
+                  setShowSuggestion(true);
+                  setPaused(true);
+                  seekTo(suggestions[0]?.timestamp || 0);
+                }}
+                style={styles.skipBtn}
+              >
               <Paragraph style={styles.skipText}>← review coaching points again</Paragraph>
             </TouchableOpacity>
+            </View>
           </View>
         )}
 
@@ -788,6 +912,12 @@ const styles = StyleSheet.create({
 
   nextBtn: { paddingVertical: 16, borderRadius: 12, alignItems: 'center' },
   nextBtnText: { fontSize: 13, fontWeight: '900', color: '#050810', letterSpacing: 2 },
+  editorBtn: {
+    paddingVertical: 14, borderRadius: 12, alignItems: 'center',
+    backgroundColor: '#00D4FF15', borderWidth: 1, borderColor: '#00D4FF40',
+    marginTop: 10,
+  },
+  editorBtnText: { fontSize: 12, fontWeight: '800', color: '#00D4FF', letterSpacing: 1.5 },
   skipBtn: { marginTop: 14, alignItems: 'center' },
   skipText: { fontSize: 12, color: '#334155', letterSpacing: 0.5 },
 
@@ -846,4 +976,90 @@ const styles = StyleSheet.create({
     backgroundColor: '#00D4FF08', borderWidth: 1, borderColor: '#00D4FF25',
     borderRadius: 8, padding: 10,
   },
+
+  // ── Extras Cards (Strengths, Improvements, Creative Ideas) ──
+  extrasCard: {
+    marginHorizontal: 16, marginTop: 12,
+    backgroundColor: '#0C1220',
+    borderWidth: 1, borderColor: '#1E293B',
+    borderRadius: 16, overflow: 'hidden',
+    padding: 20,
+  },
+  extrasTopBar: {
+    height: 3,
+    marginHorizontal: -20, marginTop: -20, marginBottom: 18,
+  },
+  extrasHeader: {
+    flexDirection: 'row', alignItems: 'center', marginBottom: 16,
+  },
+  extrasEmoji: { fontSize: 28, marginRight: 12 },
+  extrasItem: {
+    backgroundColor: '#0A0F1A', borderWidth: 1, borderColor: '#1E293B',
+    borderRadius: 10, padding: 14, marginBottom: 10,
+  },
+  extrasItemTitle: {
+    fontSize: 14, fontWeight: '700', color: '#E2F0FF',
+    lineHeight: 20, marginBottom: 4,
+  },
+  extrasItemSub: {
+    fontSize: 13, color: '#94A3B8', lineHeight: 19,
+  },
+  impactBadge: {
+    backgroundColor: '#F59E0B10', borderWidth: 1, borderColor: '#F59E0B30',
+    borderRadius: 6, paddingHorizontal: 10, paddingVertical: 5,
+    marginTop: 8, alignSelf: 'flex-start',
+  },
+  impactText: { fontSize: 12, color: '#F59E0B', fontWeight: '600' },
+  ideaItem: {
+    flexDirection: 'row',
+    backgroundColor: '#0A0F1A', borderWidth: 1, borderColor: '#1E293B',
+    borderRadius: 10, padding: 14, marginBottom: 10,
+  },
+  ideaNumberBadge: {
+    width: 28, height: 28, borderRadius: 14,
+    backgroundColor: '#00D4FF15', borderWidth: 1, borderColor: '#00D4FF40',
+    justifyContent: 'center', alignItems: 'center', marginRight: 12, marginTop: 2,
+  },
+  ideaNumber: { fontSize: 13, fontWeight: '900', color: '#00D4FF' },
+  ideaInspiration: {
+    fontSize: 12, color: '#64748B', fontStyle: 'italic',
+    lineHeight: 17, marginBottom: 4,
+  },
+
+  // ── Rewrite Script ─────────────────────────────────────
+  rewriteBtn: {
+    paddingVertical: 14, borderRadius: 12, alignItems: 'center',
+    backgroundColor: '#E879F910', borderWidth: 1, borderColor: '#E879F940',
+  },
+  rewriteBtnText: { fontSize: 12, fontWeight: '800', color: '#E879F9', letterSpacing: 1.5 },
+  rewriteCard: {
+    backgroundColor: '#0C1220',
+    borderWidth: 1, borderColor: '#1E293B',
+    borderRadius: 16, overflow: 'hidden',
+    padding: 20, marginBottom: 12,
+  },
+  rewriteTopBar: {
+    height: 3,
+    marginHorizontal: -20, marginTop: -20, marginBottom: 18,
+  },
+  rewriteBadge: {
+    width: 28, height: 28, borderRadius: 14,
+    borderWidth: 1,
+    justifyContent: 'center', alignItems: 'center', marginRight: 12,
+  },
+  rewriteBadgeText: { fontSize: 13, fontWeight: '900' },
+  rewriteTitle: { fontSize: 15, fontWeight: '800', color: '#E2F0FF' },
+  rewriteSection: { marginBottom: 12 },
+  rewriteSectionLabel: {
+    fontSize: 10, color: '#64748B', fontWeight: '700', letterSpacing: 2, marginBottom: 4,
+  },
+  rewriteText: { fontSize: 14, color: '#CBD5E1', lineHeight: 21 },
+  rewriteWhyBox: {
+    backgroundColor: '#E879F908', borderWidth: 1, borderColor: '#E879F925',
+    borderRadius: 10, padding: 12, marginTop: 4,
+  },
+  rewriteWhyLabel: {
+    fontSize: 10, color: '#E879F9', fontWeight: '700', letterSpacing: 2, marginBottom: 4,
+  },
+  rewriteWhyText: { fontSize: 13, color: '#94A3B8', lineHeight: 19 },
 });
