@@ -2,7 +2,7 @@ import express from 'express';
 import fs from 'fs';
 import path from 'path';
 import {transpileTSX} from './transpile';
-import {initBundle, isReady, getQueueLength, getMemoryMB, enqueueRender} from './render-queue';
+import {initBundle, isReady, getQueueLength, getActiveRenders, getMemoryMB, enqueueRender} from './render-queue';
 
 const app = express();
 app.use((_req, res, next) => {
@@ -38,12 +38,14 @@ app.get('/health', (_req, res) => {
   res.json({
     status: isReady() ? 'ready' : 'initializing',
     queueLength: getQueueLength(),
+    activeRenders: getActiveRenders(),
+    maxConcurrent: parseInt(process.env.MAX_CONCURRENT_RENDERS || '3', 10),
     memoryMB: getMemoryMB(),
   });
 });
 
 // Upload source video (backend sends compressed video before rendering)
-app.post('/upload-source', requireAuth, express.raw({type: ['video/*', 'application/octet-stream'], limit: '200mb'}), (req, res) => {
+app.post('/upload-source', requireAuth, express.raw({type: ['video/*', 'image/*', 'application/octet-stream'], limit: '200mb'}), (req, res) => {
   const filename = (req.headers['x-filename'] as string || `source_${Date.now()}.mp4`).replace(/[^a-zA-Z0-9._-]/g, '_');
   const filePath = path.join(SOURCES_DIR, filename);
   fs.writeFileSync(filePath, req.body);
@@ -60,6 +62,14 @@ app.get('/sources/:filename', (req, res) => {
     res.status(404).json({error: 'Source not found'});
     return;
   }
+  // Determine content type from extension
+  const ext = path.extname(safeName).toLowerCase();
+  const mimeTypes: Record<string, string> = {
+    '.mp4': 'video/mp4', '.mov': 'video/quicktime', '.avi': 'video/x-msvideo', '.webm': 'video/webm',
+    '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp', '.gif': 'image/gif',
+  };
+  const contentType = mimeTypes[ext] || 'application/octet-stream';
+
   const stat = fs.statSync(filePath);
   const fileSize = stat.size;
   const range = req.headers.range;
@@ -73,13 +83,13 @@ app.get('/sources/:filename', (req, res) => {
       'Content-Range': `bytes ${start}-${end}/${fileSize}`,
       'Accept-Ranges': 'bytes',
       'Content-Length': chunksize,
-      'Content-Type': 'video/mp4',
+      'Content-Type': contentType,
     });
     stream.pipe(res);
   } else {
     res.writeHead(200, {
       'Content-Length': fileSize,
-      'Content-Type': 'video/mp4',
+      'Content-Type': contentType,
       'Accept-Ranges': 'bytes',
     });
     fs.createReadStream(filePath).pipe(res);
@@ -108,6 +118,7 @@ app.post('/render', requireAuth, async (req, res) => {
   const {
     code,
     sourceVideoUrl,
+    sourceFiles,
     width = 1080,
     height = 1920,
     fps = 30,
@@ -119,13 +130,16 @@ app.post('/render', requireAuth, async (req, res) => {
     return;
   }
 
-  if (!sourceVideoUrl) {
-    res.status(400).json({error: 'No sourceVideoUrl provided'});
+  // Multi-file: sourceFiles array takes precedence; single-file: sourceVideoUrl
+  const hasSourceFiles = Array.isArray(sourceFiles) && sourceFiles.length > 0;
+  if (!sourceVideoUrl && !hasSourceFiles) {
+    res.status(400).json({error: 'No sourceVideoUrl or sourceFiles provided'});
     return;
   }
 
+  const primarySource = hasSourceFiles ? sourceFiles[0].url : sourceVideoUrl;
   console.log(`[SERVER] Render request: ${width}x${height} @ ${fps}fps, ${durationInFrames} frames`);
-  console.log(`[SERVER] Code: ${code.length} chars, source: ${sourceVideoUrl.substring(0, 80)}...`);
+  console.log(`[SERVER] Code: ${code.length} chars, sources: ${hasSourceFiles ? sourceFiles.length + ' files' : primarySource.substring(0, 80) + '...'}`);
 
   try {
     // Step 1: Transpile TSX → JS
@@ -136,7 +150,8 @@ app.post('/render', requireAuth, async (req, res) => {
     // Step 2: Enqueue and render
     const buffer = await enqueueRender({
       transpiledCode,
-      sourceVideo: sourceVideoUrl,
+      sourceVideo: primarySource,
+      sourceFiles: hasSourceFiles ? sourceFiles : undefined,
       width,
       height,
       fps,

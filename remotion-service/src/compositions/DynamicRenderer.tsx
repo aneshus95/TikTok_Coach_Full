@@ -37,14 +37,23 @@ const RemotionAPI = {
   Freeze,
 };
 
+export type SourceFile = {
+  url: string;
+  type: 'video' | 'image';
+  durationInFrames: number;
+  label?: string;
+};
+
 export type DynamicRendererProps = {
   transpiledCode: string;
   sourceVideo: string;
+  sourceFiles?: SourceFile[];
 };
 
 export const DynamicRenderer: React.FC<DynamicRendererProps> = ({
   transpiledCode,
   sourceVideo,
+  sourceFiles,
 }) => {
   const Component = React.useMemo(() => {
     try {
@@ -83,5 +92,10 @@ export const DynamicRenderer: React.FC<DynamicRendererProps> = ({
     );
   }
 
-  return <Component sourceVideo={sourceVideo} />;
+  // Multi-file: pass sourceFiles array; single-file: backward compat with sourceVideo
+  const effectProps = sourceFiles && sourceFiles.length > 0
+    ? {sourceFiles, sourceVideo: sourceFiles[0].url}
+    : {sourceVideo};
+
+  return <Component {...effectProps} />;
 };

@@ -16,6 +16,7 @@ export const Root: React.FC = () => {
         defaultProps={{
           transpiledCode: '',
           sourceVideo: '',
+          sourceFiles: [],
         } satisfies DynamicRendererProps}
       />
     </>

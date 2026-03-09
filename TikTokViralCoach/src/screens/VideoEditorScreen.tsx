@@ -27,7 +27,6 @@ import {
   Share,
   Image,
   PanResponder,
-  ActivityIndicator,
   Text,
 } from 'react-native';
 import {Title, Paragraph} from 'react-native-paper';
@@ -35,6 +34,7 @@ import LinearGradient from 'react-native-linear-gradient';
 import DocumentPicker from 'react-native-document-picker';
 import Video from 'react-native-video';
 import {ApiService} from '../services/ApiService';
+import LoadingAnimation from '../components/LoadingAnimation';
 
 const {width: SCREEN_WIDTH} = Dimensions.get('window');
 const FILMSTRIP_HEIGHT = 48;
@@ -64,6 +64,17 @@ interface CaptionWord {
   word: string;
   start_time: number;
   end_time: number;
+}
+
+interface UploadedFile {
+  filename: string;
+  uri: string;
+  url: string;
+  type: 'video' | 'image';
+  duration: number;
+  width: number;
+  height: number;
+  name: string;
 }
 
 // ── Presets ──
@@ -114,6 +125,36 @@ const SPEED_OPTIONS = [0.5, 0.75, 1, 1.5, 2, 3];
 const PRESET_NICHES = [
   'beauty', 'business', 'comedy', 'cooking', 'dance', 'education',
   'fashion', 'fitness', 'gaming', 'motivation', 'music', 'pets', 'tech', 'travel',
+];
+
+const GOALS = [
+  {key: 'viral', label: 'Go Viral', icon: '🔥'},
+  {key: 'followers', label: 'Grow Followers', icon: '📈'},
+  {key: 'saves', label: 'Get Saves & Shares', icon: '💾'},
+  {key: 'bio_link', label: 'Drive to Bio Link', icon: '🔗'},
+];
+
+const AUDIENCES = [
+  {key: 'gen_z', label: 'Gen Z (13-25)'},
+  {key: 'millennials', label: 'Millennials (26-40)'},
+  {key: 'parents', label: 'Parents'},
+  {key: 'professionals', label: 'Professionals'},
+  {key: 'general', label: 'Everyone'},
+];
+
+const EDIT_VIBES = [
+  {key: 'fast_cuts', label: 'Fast Cuts', icon: '⚡'},
+  {key: 'cinematic', label: 'Cinematic', icon: '🎬'},
+  {key: 'raw', label: 'Raw & Authentic', icon: '📱'},
+  {key: 'text_heavy', label: 'Text Heavy', icon: '📝'},
+  {key: 'trending', label: 'Trending Effects', icon: '✨'},
+];
+
+const COPY_STYLE_MODES = [
+  {key: 'full', label: 'Full Edit Style', icon: '🎯', desc: 'Everything: color, effects, zooms, transitions, speed, text, captions', warn: 'May affect audio sync'},
+  {key: 'visual', label: 'Visual Style Only', icon: '👁', desc: 'Color grading, effects, zooms, text style, captions', warn: 'Audio stays untouched'},
+  {key: 'color_text', label: 'Color & Text Only', icon: '🎨', desc: 'Color grading, filter, text overlay style, caption style', warn: 'Lightest touch'},
+  {key: 'effects', label: 'Effects & Motion', icon: '💫', desc: 'Zooms, transitions, effects, camera movements', warn: 'No color or text changes'},
 ];
 
 export default function VideoEditorScreen({navigation}: any) {
@@ -169,15 +210,28 @@ export default function VideoEditorScreen({navigation}: any) {
   // ── Filter ──
   const [activeFilter, setActiveFilter] = useState('none');
 
+  // ── Multi-file ──
+  const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
+  const MAX_TOTAL_DURATION = 300; // 5 minutes
+
   // ── Make Viral ──
   const [showNichePicker, setShowNichePicker] = useState(false);
   const [selectedNiche, setSelectedNiche] = useState('');
   const [customNiche, setCustomNiche] = useState('');
+  const [selectedGoal, setSelectedGoal] = useState('');
+  const [selectedAudience, setSelectedAudience] = useState('');
+  const [selectedVibe, setSelectedVibe] = useState('');
+  const [videoTopic, setVideoTopic] = useState('');
   const [viralTaskId, setViralTaskId] = useState<string | null>(null);
   const [viralStatus, setViralStatus] = useState('');
   const [viralPreviewUrl, setViralPreviewUrl] = useState<string | null>(null);
   const [viralEditSummary, setViralEditSummary] = useState('');
   const [viralPreviewPlaying, setViralPreviewPlaying] = useState(false);
+
+  // ── Copy Style ──
+  const [showCopyStylePicker, setShowCopyStylePicker] = useState(false);
+  const [copyStyleMode, setCopyStyleMode] = useState('visual');
+  const [pendingRefUri, setPendingRefUri] = useState<string | null>(null);
 
   // ── Animations ──
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -207,6 +261,9 @@ export default function VideoEditorScreen({navigation}: any) {
   useEffect(() => { if (captionAnimation !== 'none') triggerCaptionAnim(); }, [captionAnimation]);
 
   // ── Video Selection ──
+  const getTotalFileDuration = (files: UploadedFile[]) =>
+    files.reduce((sum, f) => sum + f.duration, 0);
+
   const pickVideo = async () => {
     try {
       const result = await DocumentPicker.pick({
@@ -229,6 +286,19 @@ export default function VideoEditorScreen({navigation}: any) {
       setSelectionStart(0);
       setSelectionEnd(data.duration);
 
+      // Also add to uploadedFiles for multi-file mode
+      const newFile: UploadedFile = {
+        filename: data.video_filename,
+        uri: file.uri,
+        url: data.video_url,
+        type: 'video',
+        duration: data.duration,
+        width: data.width || 1080,
+        height: data.height || 1920,
+        name: file.name || 'video.mp4',
+      };
+      setUploadedFiles([newFile]);
+
       setSegments([{
         id: 'seg_0',
         startTime: 0,
@@ -246,6 +316,112 @@ export default function VideoEditorScreen({navigation}: any) {
         Alert.alert('Upload Failed', msg);
       }
       setUploading(false);
+    }
+  };
+
+  const addMoreFiles = async () => {
+    try {
+      const result = await DocumentPicker.pickMultiple({
+        type: [DocumentPicker.types.video, DocumentPicker.types.images],
+      });
+      if (!result || result.length === 0) return;
+
+      setUploading(true);
+      const newFiles: UploadedFile[] = [];
+      let currentTotal = getTotalFileDuration(uploadedFiles);
+
+      for (const file of result) {
+        if (!file?.uri) continue;
+
+        const ext = (file.name || '').split('.').pop()?.toLowerCase() || '';
+        const isImage = ['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(ext);
+
+        try {
+          if (isImage) {
+            const data = await ApiService.editorUploadImage(file.uri, file.name || 'image.jpg');
+            const imgDuration = 5; // default 5s for images
+            if (currentTotal + imgDuration > MAX_TOTAL_DURATION) {
+              Alert.alert('Duration Limit', `Adding this file would exceed 5 minutes. ${Math.floor(MAX_TOTAL_DURATION - currentTotal)}s remaining.`);
+              break;
+            }
+            newFiles.push({
+              filename: data.filename,
+              uri: file.uri,
+              url: data.url,
+              type: 'image',
+              duration: imgDuration,
+              width: data.width || 1080,
+              height: data.height || 1920,
+              name: file.name || 'image.jpg',
+            });
+            currentTotal += imgDuration;
+          } else {
+            const data = await ApiService.editorUpload(file.uri, file.name || 'video.mp4');
+            if (currentTotal + data.duration > MAX_TOTAL_DURATION) {
+              Alert.alert('Duration Limit', `Adding this file would exceed 5 minutes. ${Math.floor(MAX_TOTAL_DURATION - currentTotal)}s remaining.`);
+              break;
+            }
+            newFiles.push({
+              filename: data.video_filename,
+              uri: file.uri,
+              url: data.video_url,
+              type: 'video',
+              duration: data.duration,
+              width: data.width || 1080,
+              height: data.height || 1920,
+              name: file.name || 'video.mp4',
+            });
+            currentTotal += data.duration;
+          }
+        } catch (uploadErr: any) {
+          console.log('[EDITOR] File upload failed:', file.name, uploadErr?.message);
+        }
+      }
+
+      if (newFiles.length > 0) {
+        const updated = [...uploadedFiles, ...newFiles];
+        setUploadedFiles(updated);
+        // Update primary video reference to first file
+        if (!videoFilename && updated.length > 0) {
+          const first = updated[0];
+          setVideoFilename(first.filename);
+          setVideoUrl(first.url);
+          setVideoUri(first.uri);
+          setVideoDuration(getTotalFileDuration(updated));
+          setVideoWidth(first.width);
+          setVideoHeight(first.height);
+        } else {
+          setVideoDuration(getTotalFileDuration(updated));
+        }
+      }
+
+      setUploading(false);
+    } catch (err: any) {
+      if (!DocumentPicker.isCancel(err)) {
+        const msg = err?.response?.data?.error || err?.message || 'Unknown error';
+        Alert.alert('Upload Failed', msg);
+      }
+      setUploading(false);
+    }
+  };
+
+  const removeFile = (index: number) => {
+    const updated = uploadedFiles.filter((_, i) => i !== index);
+    setUploadedFiles(updated);
+    if (updated.length === 0) {
+      setVideoFilename(null);
+      setVideoUrl(null);
+      setVideoUri(null);
+      setVideoDuration(0);
+      setEditorState('select');
+    } else {
+      const first = updated[0];
+      setVideoFilename(first.filename);
+      setVideoUrl(first.url);
+      setVideoUri(first.uri);
+      setVideoDuration(getTotalFileDuration(updated));
+      setVideoWidth(first.width);
+      setVideoHeight(first.height);
     }
   };
 
@@ -524,7 +700,21 @@ export default function VideoEditorScreen({navigation}: any) {
     setViralStatus('Starting...');
 
     try {
-      const data = await ApiService.editorMakeViral(videoFilename, niche);
+      const prefs = {
+        goal: selectedGoal,
+        audience: selectedAudience,
+        vibe: selectedVibe,
+        topic: videoTopic,
+      };
+
+      // Multi-file: send files array; single-file: send video_filename
+      const isMultiFile = uploadedFiles.length > 1;
+      const data = isMultiFile
+        ? await ApiService.editorMakeViral(
+            niche, prefs, undefined,
+            uploadedFiles.map(f => ({filename: f.filename, type: f.type, duration: f.duration})),
+          )
+        : await ApiService.editorMakeViral(niche, prefs, videoFilename!);
       setViralTaskId(data.task_id);
 
       const maxWait = 60 * 60 * 1000;
@@ -554,10 +744,11 @@ export default function VideoEditorScreen({navigation}: any) {
             throw new Error(status.error_message || 'Make Viral failed');
           }
 
+          const fileCount = uploadedFiles.length;
           const statusMap: Record<string, string> = {
-            'TRANSCRIBING': 'Transcribing audio...',
+            'TRANSCRIBING': fileCount > 1 ? `Analyzing ${fileCount} files...` : 'Transcribing audio...',
             'SEARCHING': 'Searching trending styles...',
-            'ANALYZING': 'Analyzing your video...',
+            'ANALYZING': fileCount > 1 ? `Planning multi-file edit...` : 'Analyzing your video...',
             'RESEARCHING': 'Researching edit techniques...',
             'RENDERING': 'Rendering viral edit...',
           };
@@ -583,7 +774,9 @@ export default function VideoEditorScreen({navigation}: any) {
       const res = await DocumentPicker.pick({type: [DocumentPicker.types.video]});
       const refUri = res[0]?.uri;
       if (!refUri) return;
-      handleCopyStyle(refUri);
+      setPendingRefUri(refUri);
+      setCopyStyleMode('visual');
+      setShowCopyStylePicker(true);
     } catch (err: any) {
       if (!DocumentPicker.isCancel(err)) {
         Alert.alert('Error', 'Could not pick reference video');
@@ -591,14 +784,20 @@ export default function VideoEditorScreen({navigation}: any) {
     }
   };
 
-  const handleCopyStyle = async (referenceUri: string) => {
+  const startCopyStyle = () => {
+    if (!pendingRefUri) return;
+    setShowCopyStylePicker(false);
+    handleCopyStyle(pendingRefUri, copyStyleMode);
+  };
+
+  const handleCopyStyle = async (referenceUri: string, mode: string = 'visual') => {
     if (!videoFilename) return;
     viralCancelledRef.current = false;
     setEditorState('viral_processing');
     setViralStatus('Analyzing reference style...');
 
     try {
-      const data = await ApiService.editorCopyStyle(videoFilename, referenceUri);
+      const data = await ApiService.editorCopyStyle(videoFilename, referenceUri, mode);
       setViralTaskId(data.task_id);
 
       const maxWait = 60 * 60 * 1000;
@@ -855,7 +1054,7 @@ export default function VideoEditorScreen({navigation}: any) {
       <TouchableOpacity onPress={pickVideo} disabled={uploading}>
         <LinearGradient colors={['#00D4FF', '#00FFB3']} style={styles.selectBtn}>
           {uploading ? (
-            <ActivityIndicator color="#050810" />
+            <LoadingAnimation size={30} variant="star" />
           ) : (
             <Paragraph style={styles.selectBtnText}>SELECT VIDEO</Paragraph>
           )}
@@ -1003,7 +1202,7 @@ export default function VideoEditorScreen({navigation}: any) {
           <TouchableOpacity onPress={handleTranscribe} disabled={captionLoading}>
             <LinearGradient colors={captionLoading ? ['#1E293B', '#1E293B'] : ['#00D4FF', '#00FFB3']} style={styles.captionGenBtn}>
               {captionLoading ? (
-                <ActivityIndicator color="#94A3B8" size="small" />
+                <LoadingAnimation size={30} variant="star" />
               ) : (
                 <Paragraph style={styles.captionGenText}>GENERATE CAPTIONS</Paragraph>
               )}
@@ -1162,22 +1361,26 @@ export default function VideoEditorScreen({navigation}: any) {
   );
 
   // ── Render: Niche Picker ──
+  const canStartViral = () => {
+    const hasNiche = selectedNiche === 'others' ? customNiche.trim().length > 0 : selectedNiche.length > 0;
+    return hasNiche && selectedGoal && selectedAudience && selectedVibe;
+  };
+
+  const startViral = () => {
+    const niche = selectedNiche === 'others' ? customNiche.trim().toLowerCase() : selectedNiche;
+    if (niche) handleMakeViral(niche);
+  };
+
   const renderNichePicker = () => (
     <View style={styles.nichePickerOverlay}>
       <View style={styles.nichePickerCard}>
-        <Paragraph style={styles.sectionLabel}>SELECT YOUR NICHE</Paragraph>
-        <Paragraph style={styles.nichePickerDesc}>
-          AI will apply editing styles popular in your niche
-        </Paragraph>
-
+        {/* 1. Niche */}
+        <Paragraph style={styles.sectionLabel}>YOUR NICHE</Paragraph>
         <View style={styles.nicheChipGrid}>
           {PRESET_NICHES.map(n => (
             <TouchableOpacity
               key={n}
-              onPress={() => {
-                setSelectedNiche(n);
-                handleMakeViral(n);
-              }}
+              onPress={() => setSelectedNiche(n)}
               style={[styles.nicheChip, selectedNiche === n && styles.chipActive]}
             >
               <Paragraph style={[styles.nicheChipText, selectedNiche === n && styles.chipTextActive]}>
@@ -1194,32 +1397,93 @@ export default function VideoEditorScreen({navigation}: any) {
             </Paragraph>
           </TouchableOpacity>
         </View>
-
         {selectedNiche === 'others' && (
-          <View style={styles.customNicheRow}>
-            <TextInput
-              style={styles.customNicheInput}
-              placeholder="Type your niche..."
-              placeholderTextColor="#64748B"
-              value={customNiche}
-              onChangeText={setCustomNiche}
-              maxLength={30}
-            />
-            <TouchableOpacity
-              onPress={() => {
-                if (customNiche.trim()) handleMakeViral(customNiche.trim().toLowerCase());
-              }}
-              disabled={!customNiche.trim()}
-            >
-              <LinearGradient
-                colors={customNiche.trim() ? ['#00D4FF', '#00FFB3'] : ['#1E293B', '#1E293B']}
-                style={styles.customNicheGoBtn}
-              >
-                <Paragraph style={[styles.customNicheGoText, !customNiche.trim() && {color: '#64748B'}]}>GO</Paragraph>
-              </LinearGradient>
-            </TouchableOpacity>
-          </View>
+          <TextInput
+            style={[styles.customNicheInput, {marginBottom: 16}]}
+            placeholder="Type your niche..."
+            placeholderTextColor="#64748B"
+            value={customNiche}
+            onChangeText={setCustomNiche}
+            maxLength={30}
+          />
         )}
+
+        {/* 2. Goal */}
+        <Paragraph style={styles.sectionLabel}>WHAT'S YOUR GOAL?</Paragraph>
+        <View style={styles.nicheChipGrid}>
+          {GOALS.map(g => (
+            <TouchableOpacity
+              key={g.key}
+              onPress={() => setSelectedGoal(g.key)}
+              style={[styles.nicheChip, selectedGoal === g.key && styles.chipActive]}
+            >
+              <Paragraph style={[styles.nicheChipText, selectedGoal === g.key && styles.chipTextActive]}>
+                {g.icon} {g.label}
+              </Paragraph>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        {/* 3. Audience */}
+        <Paragraph style={styles.sectionLabel}>TARGET AUDIENCE</Paragraph>
+        <View style={styles.nicheChipGrid}>
+          {AUDIENCES.map(a => (
+            <TouchableOpacity
+              key={a.key}
+              onPress={() => setSelectedAudience(a.key)}
+              style={[styles.nicheChip, selectedAudience === a.key && styles.chipActive]}
+            >
+              <Paragraph style={[styles.nicheChipText, selectedAudience === a.key && styles.chipTextActive]}>
+                {a.label}
+              </Paragraph>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        {/* 4. Editing Vibe */}
+        <Paragraph style={styles.sectionLabel}>EDITING VIBE</Paragraph>
+        <View style={styles.nicheChipGrid}>
+          {EDIT_VIBES.map(v => (
+            <TouchableOpacity
+              key={v.key}
+              onPress={() => setSelectedVibe(v.key)}
+              style={[styles.nicheChip, selectedVibe === v.key && styles.chipActive]}
+            >
+              <Paragraph style={[styles.nicheChipText, selectedVibe === v.key && styles.chipTextActive]}>
+                {v.icon} {v.label}
+              </Paragraph>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        {/* 5. Topic (optional) */}
+        <Paragraph style={styles.sectionLabel}>WHAT'S THE VIDEO ABOUT? (optional)</Paragraph>
+        <TextInput
+          style={[styles.customNicheInput, {marginBottom: 20}]}
+          placeholder="e.g. morning workout routine, cooking pasta..."
+          placeholderTextColor="#64748B"
+          value={videoTopic}
+          onChangeText={setVideoTopic}
+          maxLength={100}
+        />
+
+        {/* Start Button */}
+        <TouchableOpacity
+          onPress={startViral}
+          disabled={!canStartViral()}
+          style={{marginBottom: 8}}
+        >
+          <LinearGradient
+            colors={canStartViral() ? ['#FF6B00', '#FF2D87'] : ['#1E293B', '#1E293B']}
+            start={{x: 0, y: 0}}
+            end={{x: 1, y: 0}}
+            style={{borderRadius: 14, paddingVertical: 14, alignItems: 'center'}}
+          >
+            <Paragraph style={{color: canStartViral() ? '#FFF' : '#64748B', fontSize: 16, fontWeight: '800', letterSpacing: 1}}>
+              MAKE IT VIRAL
+            </Paragraph>
+          </LinearGradient>
+        </TouchableOpacity>
 
         <TouchableOpacity onPress={() => setShowNichePicker(false)} style={styles.nichePickerCancel}>
           <Paragraph style={styles.cancelText}>Cancel</Paragraph>
@@ -1229,11 +1493,50 @@ export default function VideoEditorScreen({navigation}: any) {
   );
 
 
+  const renderCopyStylePicker = () => (
+    <View style={styles.nichePickerOverlay}>
+      <View style={styles.nichePickerCard}>
+        <Paragraph style={styles.sectionLabel}>WHAT TO COPY?</Paragraph>
+        {COPY_STYLE_MODES.map(m => (
+          <TouchableOpacity
+            key={m.key}
+            onPress={() => setCopyStyleMode(m.key)}
+            style={[styles.copyStyleOption, copyStyleMode === m.key && styles.copyStyleOptionActive]}
+          >
+            <View style={{flexDirection: 'row', alignItems: 'center', marginBottom: 4}}>
+              <Paragraph style={{fontSize: 18, marginRight: 8}}>{m.icon}</Paragraph>
+              <Paragraph style={[styles.copyStyleLabel, copyStyleMode === m.key && {color: '#FFF'}]}>{m.label}</Paragraph>
+            </View>
+            <Paragraph style={styles.copyStyleDesc}>{m.desc}</Paragraph>
+            <Paragraph style={[styles.copyStyleWarn, m.key === 'full' ? {color: '#FF6B6B'} : {color: '#64748B'}]}>{m.warn}</Paragraph>
+          </TouchableOpacity>
+        ))}
+
+        <TouchableOpacity onPress={startCopyStyle} style={{marginTop: 16}}>
+          <LinearGradient
+            colors={['#7C3AED', '#2563EB']}
+            start={{x: 0, y: 0}}
+            end={{x: 1, y: 0}}
+            style={{borderRadius: 14, paddingVertical: 14, alignItems: 'center'}}
+          >
+            <Paragraph style={{color: '#FFF', fontSize: 16, fontWeight: '800', letterSpacing: 1}}>
+              COPY STYLE
+            </Paragraph>
+          </LinearGradient>
+        </TouchableOpacity>
+
+        <TouchableOpacity onPress={() => { setShowCopyStylePicker(false); setPendingRefUri(null); }} style={styles.nichePickerCancel}>
+          <Paragraph style={styles.cancelText}>Cancel</Paragraph>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+
   // Plan review removed — pipeline runs straight through
   // ── Render: Viral Processing state ──
   const renderViralProcessing = () => (
     <View style={styles.processingContainer}>
-      <ActivityIndicator size="large" color="#00FFB3" />
+      <LoadingAnimation size={80} variant="star" />
       <Title style={styles.processingTitle}>Making it Viral</Title>
       <Paragraph style={styles.processingStatus}>{viralStatus}</Paragraph>
       <Paragraph style={styles.processingHint}>
@@ -1309,21 +1612,67 @@ export default function VideoEditorScreen({navigation}: any) {
     </View>
   );
 
+  // ── Render: File List for multi-file ──
+  const renderFileList = () => {
+    if (uploadedFiles.length <= 1) return null;
+    const totalDur = getTotalFileDuration(uploadedFiles);
+    return (
+      <View style={styles.fileListContainer}>
+        <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6}}>
+          <Paragraph style={{color: '#94A3B8', fontSize: 11, fontWeight: '600', letterSpacing: 1}}>
+            {uploadedFiles.length} FILES ({Math.floor(totalDur / 60)}:{String(Math.floor(totalDur % 60)).padStart(2, '0')} / 5:00)
+          </Paragraph>
+        </View>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+          {uploadedFiles.map((f, i) => (
+            <View key={f.filename} style={styles.fileChip}>
+              <Paragraph style={styles.fileChipIcon}>{f.type === 'video' ? '🎥' : '🖼'}</Paragraph>
+              <View style={{flex: 1, marginHorizontal: 6}}>
+                <Paragraph style={styles.fileChipName} numberOfLines={1}>{f.name}</Paragraph>
+                <Paragraph style={styles.fileChipDur}>{f.duration.toFixed(1)}s</Paragraph>
+              </View>
+              <TouchableOpacity onPress={() => removeFile(i)} hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}>
+                <Paragraph style={{color: '#EF4444', fontSize: 14, fontWeight: '700'}}>{'×'}</Paragraph>
+              </TouchableOpacity>
+            </View>
+          ))}
+        </ScrollView>
+      </View>
+    );
+  };
+
   // ── Render: EDITOR state ──
   const renderEditor = () => (
     <View style={styles.editorContainer}>
-      {/* Make Viral Button */}
-      <TouchableOpacity onPress={() => setShowNichePicker(true)} style={styles.makeViralBtn}>
-        <LinearGradient
-          colors={['#FF6B00', '#FF2D87']}
-          start={{x: 0, y: 0}}
-          end={{x: 1, y: 0}}
-          style={styles.makeViralGradient}
-        >
-          <Paragraph style={styles.makeViralIcon}>{'🔥'}</Paragraph>
-          <Paragraph style={styles.makeViralText}>MAKE VIRAL</Paragraph>
-        </LinearGradient>
-      </TouchableOpacity>
+      {/* File list (multi-file mode) */}
+      {renderFileList()}
+
+      {/* Action Buttons Row */}
+      <View style={{flexDirection: 'row', gap: 8, marginBottom: 8}}>
+        {/* Make Viral Button */}
+        <TouchableOpacity onPress={() => setShowNichePicker(true)} style={[styles.makeViralBtn, {flex: 1}]}>
+          <LinearGradient
+            colors={['#FF6B00', '#FF2D87']}
+            start={{x: 0, y: 0}}
+            end={{x: 1, y: 0}}
+            style={styles.makeViralGradient}
+          >
+            <Paragraph style={styles.makeViralIcon}>{'🔥'}</Paragraph>
+            <Paragraph style={styles.makeViralText}>MAKE VIRAL</Paragraph>
+          </LinearGradient>
+        </TouchableOpacity>
+
+        {/* Add More Files Button */}
+        <TouchableOpacity onPress={addMoreFiles} disabled={uploading} style={{width: 48}}>
+          <View style={{backgroundColor: '#1E293B', borderRadius: 12, height: 44, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#334155'}}>
+            {uploading ? (
+              <LoadingAnimation size={20} variant="star" />
+            ) : (
+              <Paragraph style={{color: '#00D4FF', fontSize: 20, fontWeight: '700'}}>+</Paragraph>
+            )}
+          </View>
+        </TouchableOpacity>
+      </View>
 
       {/* Copy Style Button */}
       <TouchableOpacity onPress={handlePickReferenceVideo} style={styles.makeViralBtn}>
@@ -1340,6 +1689,7 @@ export default function VideoEditorScreen({navigation}: any) {
 
       {/* Niche Picker Modal */}
       {showNichePicker && renderNichePicker()}
+      {showCopyStylePicker && renderCopyStylePicker()}
 
       {/* Video Player with overlays */}
       <TouchableOpacity onPress={togglePlay} activeOpacity={0.9} style={styles.videoContainer}>
@@ -1417,7 +1767,7 @@ export default function VideoEditorScreen({navigation}: any) {
         <TouchableOpacity onPress={handleExport} disabled={exporting}>
           <LinearGradient colors={['#00D4FF', '#00FFB3']} style={styles.exportBtn}>
             {exporting ? (
-              <ActivityIndicator color="#050810" />
+              <LoadingAnimation size={30} variant="star" />
             ) : (
               <Paragraph style={styles.exportBtnText}>EXPORT VIDEO</Paragraph>
             )}
@@ -1433,7 +1783,7 @@ export default function VideoEditorScreen({navigation}: any) {
   // ── Render: AI Processing state ──
   const renderAiProcessing = () => (
     <View style={styles.processingContainer}>
-      <ActivityIndicator size="large" color="#00D4FF" />
+      <LoadingAnimation size={80} variant="star" />
       <Title style={styles.processingTitle}>Editing Segment</Title>
       <Paragraph style={styles.processingStatus}>{aiStatus}</Paragraph>
       <Paragraph style={styles.processingHint}>
@@ -1921,6 +2271,21 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   cancelText: {color: '#94A3B8', fontSize: 13},
+  copyStyleOption: {
+    backgroundColor: '#0C1220',
+    borderWidth: 1,
+    borderColor: '#1E293B',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 10,
+  },
+  copyStyleOptionActive: {
+    borderColor: '#7C3AED',
+    backgroundColor: '#1a1035',
+  },
+  copyStyleLabel: {color: '#CBD5E1', fontSize: 15, fontWeight: '700'},
+  copyStyleDesc: {color: '#94A3B8', fontSize: 12, marginTop: 2},
+  copyStyleWarn: {fontSize: 11, marginTop: 4, fontStyle: 'italic'},
 
   // AI Preview
   previewContainer: {paddingHorizontal: 16, paddingTop: 8},
@@ -1955,8 +2320,27 @@ const styles = StyleSheet.create({
   },
   acceptText: {color: '#050810', fontSize: 14, fontWeight: '700'},
 
+  // Multi-file list
+  fileListContainer: {marginBottom: 10, paddingHorizontal: 4},
+  fileChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#0C1220',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    marginRight: 8,
+    borderWidth: 1,
+    borderColor: '#1E293B',
+    minWidth: 140,
+    maxWidth: 200,
+  },
+  fileChipIcon: {fontSize: 16},
+  fileChipName: {color: '#E2E8F0', fontSize: 11, fontWeight: '600'},
+  fileChipDur: {color: '#64748B', fontSize: 10},
+
   // Make Viral button
-  makeViralBtn: {marginBottom: 12},
+  makeViralBtn: {marginBottom: 8},
   makeViralGradient: {
     flexDirection: 'row',
     alignItems: 'center',

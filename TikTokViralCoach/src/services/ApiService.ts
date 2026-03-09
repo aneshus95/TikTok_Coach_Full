@@ -84,6 +84,29 @@ api.interceptors.response.use(
 );
 
 // ============================================
+// GENERIC TASK POLLING
+// ============================================
+async function pollTask(taskId: string, timeoutMs: number = 300000, intervalMs: number = 3000): Promise<any> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    await new Promise(r => setTimeout(r, intervalMs));
+    try {
+      const { data } = await api.get(`/tasks/${taskId}/status`, { timeout: 15000 });
+      if (data.state === 'SUCCEEDED') return data.result;
+      if (data.state === 'FAILED') {
+        const err: any = new Error(data.error_message || 'Task failed');
+        err.userMessage = data.error_message || 'Something went wrong. Try again.';
+        throw err;
+      }
+    } catch (pollErr: any) {
+      if (pollErr.userMessage) throw pollErr;
+      if (__DEV__) console.log('[pollTask] Retry after error:', pollErr.message);
+    }
+  }
+  throw new Error('Task timed out. Try again.');
+}
+
+// ============================================
 // API SERVICE
 // ============================================
 export const ApiService = {
@@ -205,22 +228,8 @@ export const ApiService = {
   // QUICK TOOLS (full-video processing)
   // ──────────────────────────────────────────
 
-  /** Apply a quick tool to the full video. Returns { video_url, video_filename, ...metadata } */
+  /** Apply AI edit to the full video. Returns { video_url, video_filename, ...metadata } */
   async applyQuickTool(tool: string, formData: FormData) {
-    // Map frontend tool keys to backend route names
-    const routeMap: Record<string, string> = {
-      colorgrade: 'colorgrade',
-      silence: 'silence-removal',
-      speedramp: 'speed-ramp',
-      captions: 'captions',
-      autozoom: 'autozoom',
-      voiceenhance: 'voice-enhance',
-      reframe: 'reframe',
-      highlights: 'highlights',
-      smartcut: 'smartcut',
-      aiedit: 'prompt-edit',
-    };
-
     // AI Edit is async — submit, start foreground service, poll in foreground + background
     if (tool === 'aiedit') {
       // Retry submission up to 3 times on connection errors (server restarts, cold starts)
@@ -285,12 +294,7 @@ export const ApiService = {
       throw {message: 'AI edit timed out', userMessage: 'Edit took too long. Try a shorter video.'};
     }
 
-    const route = routeMap[tool] || tool;
-    const response = await api.post(`/tools/${route}`, formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-      timeout: 600000,
-    });
-    return response.data;
+    throw {message: 'Unknown tool', userMessage: 'Tool not available.'};
   },
 
   /** Poll edit status — used by foreground service in App.tsx */
@@ -404,6 +408,17 @@ export const ApiService = {
     return response.data; // { video_url, video_filename }
   },
 
+  /** Upload image for multi-file Make Viral */
+  async editorUploadImage(imageUri: string, fileName: string) {
+    const formData = new FormData();
+    formData.append('image', {uri: imageUri, type: 'image/jpeg', name: fileName} as any);
+    const response = await api.post('/editor/upload-image', formData, {
+      headers: {'Content-Type': 'multipart/form-data'},
+      timeout: 60000,
+    });
+    return response.data; // { filename, url, width, height, type }
+  },
+
   // ──────────────────────────────────────────
   // MAKE VIRAL
   // ──────────────────────────────────────────
@@ -414,12 +429,20 @@ export const ApiService = {
     return res.data; // { niches: string[] }
   },
 
-  /** Start Make Viral pipeline */
-  async editorMakeViral(videoFilename: string, niche: string) {
-    const response = await api.post('/editor/make-viral', {
-      video_filename: videoFilename,
-      niche,
-    }, {timeout: 30000});
+  /** Start Make Viral pipeline — single video or multi-file */
+  async editorMakeViral(
+    niche: string,
+    prefs?: {goal?: string; audience?: string; vibe?: string; topic?: string},
+    videoFilename?: string,
+    files?: Array<{filename: string; type: 'video' | 'image'; duration: number}>,
+  ) {
+    const body: any = {niche, ...(prefs || {})};
+    if (files && files.length > 0) {
+      body.files = files;
+    } else if (videoFilename) {
+      body.video_filename = videoFilename;
+    }
+    const response = await api.post('/editor/make-viral', body, {timeout: 30000});
     return response.data; // { task_id, state }
   },
 
@@ -430,9 +453,10 @@ export const ApiService = {
   },
 
   /** Copy Style — upload reference video + user's video filename */
-  async editorCopyStyle(videoFilename: string, referenceUri: string) {
+  async editorCopyStyle(videoFilename: string, referenceUri: string, mode: string = 'visual') {
     const formData = new FormData();
     formData.append('video_filename', videoFilename);
+    formData.append('mode', mode);
     formData.append('reference', {
       uri: referenceUri,
       type: 'video/mp4',
@@ -489,39 +513,19 @@ export const ApiService = {
     return response.data;
   },
 
-  async rewriteScript(originalScript: string, niche: string) {
-    const response = await api.post('/coaching/rewrite-script', {
-      original_script: originalScript,
+  async expandIdea(idea: string, niche: string, inspiration?: string, howToExecute?: string) {
+    const { data } = await api.post('/coaching/expand-idea', {
+      idea,
       niche,
-    }, { timeout: 120000 });
-    return response.data;
+      ...(inspiration ? { inspiration } : {}),
+      ...(howToExecute ? { how_to_execute: howToExecute } : {}),
+    }, { timeout: 30000 });
+    return await pollTask(data.task_id);
   },
 
   async fetchViralResearch(analysisId: string) {
     const response = await api.post('/viral-research', { analysis_id: analysisId }, { timeout: 120000 });
     return response.data;
-  },
-
-  async askQuestion(question: string, niche: string) {
-    const response = await api.post('/chat/ask', { question, niche });
-    return response.data;
-  },
-
-  // ── TRENDING IDEAS ──
-  async getTrendingIdeas(niche: string) {
-    const response = await api.post('/trending/ideas', { niche }, { timeout: 3600000 });
-    return response.data;
-  },
-
-  // ── NICHE PREFERENCES ──
-  async saveNichePreferences(niches: string[]) {
-    const response = await api.post('/user/niches', { niches });
-    return response.data;
-  },
-
-  async getNichePreferences() {
-    const response = await api.get('/user/niches');
-    return response.data; // { niches: string[] }
   },
 
   // ── FCM TOKEN ──
@@ -530,38 +534,23 @@ export const ApiService = {
     return response.data;
   },
 
-  // ── TRENDING FEED ──
-  async getTrendingFeed(niche?: string, limit: number = 20, offset: number = 0) {
-    const params: any = { limit, offset };
-    if (niche) params.niche = niche;
-    const response = await api.get('/trending/feed', { params });
-    return response.data;
-  },
-
-  async getTrendingSounds(niche?: string, limit: number = 10) {
-    const params: any = { limit };
-    if (niche) params.niche = niche;
-    const response = await api.get('/trending/sounds', { params });
-    return response.data;
-  },
-
   // ── Script Writer ──────────────────────────
 
   async generateScript(niche: string, topic: string) {
-    const response = await api.post('/script/generate', { niche, topic });
-    return response.data;
+    const { data } = await api.post('/script/generate', { niche, topic }, { timeout: 30000 });
+    return await pollTask(data.task_id);
   },
 
   async getScriptIdeas(description: string, tone: string, format: string, audience: string = '', coachingFeedback?: any) {
     const body: any = { description, tone, format, audience };
     if (coachingFeedback) body.coaching_feedback = coachingFeedback;
-    const response = await api.post('/script/ideas', body);
-    return response.data;
+    const { data } = await api.post('/script/ideas', body, { timeout: 30000 });
+    return await pollTask(data.task_id);
   },
 
   async getScriptFromIdea(idea: any, description: string, tone: string, format: string, audience: string = '') {
-    const response = await api.post('/script/from-idea', { idea, description, tone, format, audience });
-    return response.data;
+    const { data } = await api.post('/script/from-idea', { idea, description, tone, format, audience }, { timeout: 30000 });
+    return await pollTask(data.task_id);
   },
 
   async listScripts(limit: number = 20, offset: number = 0) {

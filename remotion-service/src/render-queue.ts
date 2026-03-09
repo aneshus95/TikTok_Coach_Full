@@ -6,9 +6,17 @@ import crypto from 'crypto';
 let serveUrl: string | null = null;
 let bundling = false;
 
+type SourceFile = {
+  url: string;
+  type: 'video' | 'image';
+  durationInFrames: number;
+  label?: string;
+};
+
 type RenderJob = {
   transpiledCode: string;
   sourceVideo: string;
+  sourceFiles?: SourceFile[];
   width: number;
   height: number;
   fps: number;
@@ -18,7 +26,8 @@ type RenderJob = {
 };
 
 const queue: RenderJob[] = [];
-let isProcessing = false;
+let activeRenders = 0;
+const MAX_CONCURRENT = parseInt(process.env.MAX_CONCURRENT_RENDERS || '3', 10);
 
 /**
  * Bundle compositions once on startup.
@@ -41,6 +50,7 @@ export async function initBundle(): Promise<void> {
     });
 
     console.log(`[RENDER-QUEUE] Bundle ready in ${Date.now() - startTime}ms`);
+    console.log(`[RENDER-QUEUE] Max concurrent renders: ${MAX_CONCURRENT}`);
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error('[RENDER-QUEUE] Bundle failed:', msg);
@@ -56,7 +66,11 @@ export function isReady(): boolean {
 }
 
 export function getQueueLength(): number {
-  return queue.length + (isProcessing ? 1 : 0);
+  return queue.length + activeRenders;
+}
+
+export function getActiveRenders(): number {
+  return activeRenders;
 }
 
 export function getMemoryMB(): number {
@@ -74,15 +88,25 @@ export function enqueueRender(job: Omit<RenderJob, 'resolve' | 'reject'>): Promi
 }
 
 async function processQueue(): Promise<void> {
-  if (isProcessing || queue.length === 0) return;
-  isProcessing = true;
+  // Process as many jobs as we can up to MAX_CONCURRENT
+  while (activeRenders < MAX_CONCURRENT && queue.length > 0) {
+    const job = queue.shift()!;
+    activeRenders++;
+    // Fire and forget — each render manages its own lifecycle
+    processJob(job).finally(() => {
+      activeRenders--;
+      // Try to pick up more work
+      processQueue();
+    });
+  }
+}
 
-  const job = queue.shift()!;
+async function processJob(job: RenderJob): Promise<void> {
   const jobId = crypto.randomBytes(4).toString('hex');
   const tmpDir = os.tmpdir();
   const outputPath = path.join(tmpDir, `remotion_${jobId}.mp4`);
 
-  console.log(`[RENDER-QUEUE] Starting render ${jobId} (queue: ${queue.length} remaining)`);
+  console.log(`[RENDER-QUEUE] Starting render ${jobId} (active: ${activeRenders}/${MAX_CONCURRENT}, queued: ${queue.length})`);
   console.log(`[RENDER-QUEUE] Params: ${job.width}x${job.height} @ ${job.fps}fps, ${job.durationInFrames} frames`);
   console.log(`[RENDER-QUEUE] Code size: ${job.transpiledCode.length} chars`);
 
@@ -107,6 +131,7 @@ async function processQueue(): Promise<void> {
     const inputProps = {
       transpiledCode: job.transpiledCode,
       sourceVideo: job.sourceVideo,
+      sourceFiles: job.sourceFiles || [],
     };
 
     const composition = await selectComposition({
@@ -121,6 +146,10 @@ async function processQueue(): Promise<void> {
     composition.width = job.width;
     composition.height = job.height;
 
+    // Scale per-render concurrency based on active renders
+    // With 16GB RAM and 4 CPUs, distribute resources
+    const perRenderConcurrency = Math.max(1, Math.floor(4 / activeRenders));
+
     await renderMedia({
       composition,
       serveUrl,
@@ -130,7 +159,7 @@ async function processQueue(): Promise<void> {
       imageFormat: 'jpeg',
       jpegQuality: 85,
       enforceAudioTrack: true,
-      concurrency: 1, // Limit to prevent OOM
+      concurrency: perRenderConcurrency,
       timeoutInMilliseconds: 3600000,
       onProgress: ({progress}: {progress: number}) => {
         const pct = Math.floor(progress * 100);
@@ -166,11 +195,5 @@ async function processQueue(): Promise<void> {
     try {
       if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
     } catch {}
-
-    isProcessing = false;
-    // Process next job in queue
-    if (queue.length > 0) {
-      processQueue();
-    }
   }
 }
