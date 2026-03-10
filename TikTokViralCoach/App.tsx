@@ -91,7 +91,7 @@ function SplashScreen() {
 
 export default function App() {
   const [isLoading, setIsLoading] = useState(true);
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [isLoggedIn, setIsLoggedIn] = useState(true);
   const [initialNavState, setInitialNavState] = useState<any>(undefined);
 
   useEffect(() => {
@@ -109,8 +109,8 @@ export default function App() {
           }
         }
 
-        const token = await AsyncStorage.getItem('auth_token');
-        setIsLoggedIn(!!token);
+        // Skip auth check — go straight to Dashboard
+        setIsLoggedIn(true);
 
         // Initialize FCM for push notifications
         try {
@@ -131,7 +131,7 @@ export default function App() {
           }
         }
       } catch {
-        setIsLoggedIn(false);
+        // Login bypassed for dev
       } finally {
         setIsLoading(false);
       }

@@ -83,7 +83,7 @@ type CaptionTimingMode = 'word' | 'phrase' | 'sentence' | 'single-pop';
 type CaptionFontStyle = 'bold-sans' | 'outlined' | 'neon' | 'classic' | 'minimal' | 'impact';
 type CaptionAnimation = 'none' | 'fade' | 'pop' | 'slide-up' | 'typewriter' | 'karaoke';
 type ActiveTool = 'none' | 'captions' | 'speed' | 'filters';
-type EditorState = 'select' | 'editor' | 'ai_processing' | 'ai_preview' | 'viral_processing' | 'viral_preview';
+type EditorState = 'select' | 'editor' | 'ai_processing' | 'ai_preview' | 'viral_processing' | 'viral_preview' | 'hook_selection';
 
 const TIMING_MODES: {key: CaptionTimingMode; label: string; desc: string}[] = [
   {key: 'word', label: 'Word by Word', desc: 'Each word highlights as spoken'},
@@ -227,6 +227,12 @@ export default function VideoEditorScreen({navigation}: any) {
   const [viralPreviewUrl, setViralPreviewUrl] = useState<string | null>(null);
   const [viralEditSummary, setViralEditSummary] = useState('');
   const [viralPreviewPlaying, setViralPreviewPlaying] = useState(false);
+  const [hookPreviews, setHookPreviews] = useState<Array<{preview_url: string | null; description: string; hook_trim_start?: number; opening_text?: any}>>([]);
+  const [hookPreviewPlaying, setHookPreviewPlaying] = useState<number | null>(null);
+
+  // ── Regenerate / Tweak ──
+  const [showTweakInput, setShowTweakInput] = useState(false);
+  const [tweakFeedback, setTweakFeedback] = useState('');
 
   // ── Copy Style ──
   const [showCopyStylePicker, setShowCopyStylePicker] = useState(false);
@@ -267,42 +273,70 @@ export default function VideoEditorScreen({navigation}: any) {
   const pickVideo = async () => {
     try {
       const result = await DocumentPicker.pick({
-        type: [DocumentPicker.types.video],
+        type: [DocumentPicker.types.video, DocumentPicker.types.images],
+        allowMultiSelection: true,
       });
-      const file = result[0];
-      if (!file?.uri) return;
+      if (!result || result.length === 0) return;
 
       setUploading(true);
-      setVideoUri(file.uri);
+      const allFiles: UploadedFile[] = [];
+      let totalDur = 0;
 
-      const data = await ApiService.editorUpload(file.uri, file.name || 'video.mp4');
+      for (const file of result) {
+        if (!file?.uri) continue;
+        const ext = (file.name || '').split('.').pop()?.toLowerCase() || '';
+        const isImage = ['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(ext);
 
-      setVideoFilename(data.video_filename);
-      setVideoUrl(data.video_url);
-      setVideoDuration(data.duration);
-      setVideoWidth(data.width || 1080);
-      setVideoHeight(data.height || 1920);
-      setThumbnails(data.thumbnails || []);
+        try {
+          if (isImage) {
+            const data = await ApiService.editorUploadImage(file.uri, file.name || 'image.jpg');
+            const imgDur = 5;
+            if (totalDur + imgDur > MAX_TOTAL_DURATION) {
+              Alert.alert('Duration Limit', 'Total exceeds 5 minutes. Skipping remaining files.');
+              break;
+            }
+            allFiles.push({
+              filename: data.filename, uri: file.uri, url: data.url, type: 'image',
+              duration: imgDur, width: data.width || 1080, height: data.height || 1920,
+              name: file.name || 'image.jpg',
+            });
+            totalDur += imgDur;
+          } else {
+            const data = await ApiService.editorUpload(file.uri, file.name || 'video.mp4');
+            if (totalDur + data.duration > MAX_TOTAL_DURATION) {
+              Alert.alert('Duration Limit', 'Total exceeds 5 minutes. Skipping remaining files.');
+              break;
+            }
+            allFiles.push({
+              filename: data.video_filename, uri: file.uri, url: data.video_url, type: 'video',
+              duration: data.duration, width: data.width || 1080, height: data.height || 1920,
+              name: file.name || 'video.mp4',
+            });
+            totalDur += data.duration;
+          }
+        } catch (uploadErr: any) {
+          console.log('[EDITOR] File upload failed:', file.name, uploadErr?.message);
+        }
+      }
+
+      if (allFiles.length === 0) { setUploading(false); return; }
+
+      const first = allFiles[0];
+      setUploadedFiles(allFiles);
+      setVideoFilename(first.filename);
+      setVideoUrl(first.url);
+      setVideoUri(first.uri);
+      setVideoDuration(totalDur);
+      setVideoWidth(first.width);
+      setVideoHeight(first.height);
+      setThumbnails([]);
       setSelectionStart(0);
-      setSelectionEnd(data.duration);
-
-      // Also add to uploadedFiles for multi-file mode
-      const newFile: UploadedFile = {
-        filename: data.video_filename,
-        uri: file.uri,
-        url: data.video_url,
-        type: 'video',
-        duration: data.duration,
-        width: data.width || 1080,
-        height: data.height || 1920,
-        name: file.name || 'video.mp4',
-      };
-      setUploadedFiles([newFile]);
+      setSelectionEnd(totalDur);
 
       setSegments([{
         id: 'seg_0',
         startTime: 0,
-        endTime: data.duration,
+        endTime: totalDur,
         type: 'original',
         speed: 1,
       }]);
@@ -321,8 +355,9 @@ export default function VideoEditorScreen({navigation}: any) {
 
   const addMoreFiles = async () => {
     try {
-      const result = await DocumentPicker.pickMultiple({
+      const result = await DocumentPicker.pick({
         type: [DocumentPicker.types.video, DocumentPicker.types.images],
+        allowMultiSelection: true,
       });
       if (!result || result.length === 0) return;
 
@@ -728,6 +763,13 @@ export default function VideoEditorScreen({navigation}: any) {
         try {
           const status = await ApiService.editorPollViral(data.task_id);
 
+          if (status.state === 'HOOKS_READY') {
+            if (viralCancelledRef.current) return;
+            setHookPreviews(status.hooks || []);
+            setEditorState('hook_selection');
+            return;
+          }
+
           if (status.state === 'SUCCEEDED') {
             if (viralCancelledRef.current) return;
             setViralPreviewUrl(status.video_url);
@@ -749,6 +791,7 @@ export default function VideoEditorScreen({navigation}: any) {
             'TRANSCRIBING': fileCount > 1 ? `Analyzing ${fileCount} files...` : 'Transcribing audio...',
             'SEARCHING': 'Searching trending styles...',
             'ANALYZING': fileCount > 1 ? `Planning multi-file edit...` : 'Analyzing your video...',
+            'GENERATING_HOOKS': 'Creating hook options...',
             'RESEARCHING': 'Researching edit techniques...',
             'RENDERING': 'Rendering viral edit...',
           };
@@ -843,6 +886,143 @@ export default function VideoEditorScreen({navigation}: any) {
       if (viralCancelledRef.current) return;
       const msg = err?.response?.data?.error || err?.message || 'Something went wrong.';
       Alert.alert('Copy Style Failed', msg);
+      setEditorState('editor');
+    }
+  };
+
+  // ── Regenerate / Tweak ──
+  const pollRegenerateTask = async (taskId: string) => {
+    const maxWait = 60 * 60 * 1000;
+    const start = Date.now();
+
+    while (Date.now() - start < maxWait) {
+      if (viralCancelledRef.current) return;
+      await new Promise(r => setTimeout(r, 5000));
+      if (viralCancelledRef.current) return;
+
+      try {
+        const status = await ApiService.pollRegenerateStatus(taskId);
+
+        if (status.state === 'SUCCEEDED') {
+          if (viralCancelledRef.current) return;
+          setViralPreviewUrl(status.video_url);
+          setViralEditSummary(status.edit_summary || '');
+          if (Array.isArray(status.captions) && status.captions.length > 0) {
+            setCaptionWords(status.captions);
+            setCaptionEnabled(true);
+          }
+          setEditorState('viral_preview');
+          return;
+        }
+
+        if (status.state === 'FAILED') {
+          throw new Error(status.error_message || 'Regeneration failed');
+        }
+
+        const statusMap: Record<string, string> = {
+          'PLANNING': 'Planning new edit...',
+          'ANALYZING': 'Analyzing footage...',
+          'RESEARCHING': 'Researching techniques...',
+          'RENDERING': 'Rendering edit...',
+        };
+        setViralStatus(statusMap[status.state] || 'Processing...');
+      } catch (pollErr: any) {
+        if (pollErr.message?.includes('failed')) throw pollErr;
+      }
+    }
+    throw new Error('Timed out');
+  };
+
+  const handleRegenerate = async () => {
+    if (!viralTaskId) return;
+    try {
+      viralCancelledRef.current = false;
+      setViralPreviewPlaying(false);
+      setEditorState('viral_processing');
+      setViralStatus('Regenerating edit...');
+      const {task_id} = await ApiService.regenerateEdit(viralTaskId);
+      setViralTaskId(task_id);
+      await pollRegenerateTask(task_id);
+    } catch (err: any) {
+      if (viralCancelledRef.current) return;
+      const msg = err?.response?.data?.error || err?.message || 'Failed to regenerate';
+      Alert.alert('Regenerate Failed', msg);
+      setEditorState('viral_preview');
+    }
+  };
+
+  const handleTweak = async (feedback: string) => {
+    if (!viralTaskId || !feedback.trim()) return;
+    try {
+      viralCancelledRef.current = false;
+      setViralPreviewPlaying(false);
+      setShowTweakInput(false);
+      setTweakFeedback('');
+      setEditorState('viral_processing');
+      setViralStatus('Applying your feedback...');
+      const {task_id} = await ApiService.regenerateEdit(viralTaskId, feedback.trim());
+      setViralTaskId(task_id);
+      await pollRegenerateTask(task_id);
+    } catch (err: any) {
+      if (viralCancelledRef.current) return;
+      const msg = err?.response?.data?.error || err?.message || 'Failed to tweak';
+      Alert.alert('Tweak Failed', msg);
+      setEditorState('viral_preview');
+    }
+  };
+
+  // ── Choose Hook ──
+  const handleChooseHook = async (hookIndex: number) => {
+    if (!viralTaskId) return;
+    setEditorState('viral_processing');
+    setViralStatus('Applying chosen hook...');
+    viralCancelledRef.current = false;
+
+    try {
+      await ApiService.editorChooseHook(viralTaskId, hookIndex);
+
+      // Resume polling for the rest of the pipeline
+      const maxWait = 60 * 60 * 1000;
+      const start = Date.now();
+
+      while (Date.now() - start < maxWait) {
+        if (viralCancelledRef.current) return;
+        await new Promise(r => setTimeout(r, 5000));
+        if (viralCancelledRef.current) return;
+
+        try {
+          const status = await ApiService.editorPollViral(viralTaskId);
+
+          if (status.state === 'SUCCEEDED') {
+            if (viralCancelledRef.current) return;
+            setViralPreviewUrl(status.video_url);
+            setViralEditSummary(status.edit_summary || '');
+            if (Array.isArray(status.captions) && status.captions.length > 0) {
+              setCaptionWords(status.captions);
+              setCaptionEnabled(true);
+            }
+            setEditorState('viral_preview');
+            return;
+          }
+
+          if (status.state === 'FAILED') {
+            throw new Error(status.error_message || 'Make Viral failed');
+          }
+
+          const statusMap: Record<string, string> = {
+            'RESEARCHING': 'Researching edit techniques...',
+            'RENDERING': 'Rendering viral edit...',
+          };
+          setViralStatus(statusMap[status.state] || 'Processing...');
+        } catch (pollErr: any) {
+          if (pollErr.message?.includes('failed')) throw pollErr;
+        }
+      }
+      throw new Error('Timed out');
+    } catch (err: any) {
+      if (viralCancelledRef.current) return;
+      const msg = err?.response?.data?.error || err?.message || 'Something went wrong.';
+      Alert.alert('Make Viral Failed', msg);
       setEditorState('editor');
     }
   };
@@ -1049,14 +1229,14 @@ export default function VideoEditorScreen({navigation}: any) {
       </View>
       <Title style={styles.selectTitle}>Video Editor</Title>
       <Paragraph style={styles.selectDesc}>
-        Select a video to start editing. Cut, trim, add captions, speed, filters, and AI effects.
+        Select videos and images to start editing. You can pick multiple files at once.
       </Paragraph>
       <TouchableOpacity onPress={pickVideo} disabled={uploading}>
         <LinearGradient colors={['#00D4FF', '#00FFB3']} style={styles.selectBtn}>
           {uploading ? (
             <LoadingAnimation size={30} variant="star" />
           ) : (
-            <Paragraph style={styles.selectBtnText}>SELECT VIDEO</Paragraph>
+            <Paragraph style={styles.selectBtnText}>SELECT FILES</Paragraph>
           )}
         </LinearGradient>
       </TouchableOpacity>
@@ -1551,6 +1731,77 @@ export default function VideoEditorScreen({navigation}: any) {
     </View>
   );
 
+  // ── Render: Hook Selection state ──
+  const renderHookSelection = () => (
+    <View style={styles.hookSelectionContainer}>
+      <Title style={styles.hookSelectionTitle}>Choose Your Hook</Title>
+      <Paragraph style={styles.hookSelectionSubtitle}>
+        Pick the opening that grabs attention best
+      </Paragraph>
+
+      {hookPreviews.map((hook, index) => (
+        <View key={index} style={styles.hookCard}>
+          <View style={styles.hookCardHeader}>
+            <View style={styles.hookBadge}>
+              <Paragraph style={styles.hookBadgeText}>
+                {index === 0 ? 'ORIGINAL' : `OPTION ${index + 1}`}
+              </Paragraph>
+            </View>
+          </View>
+
+          {hook.preview_url ? (
+            <TouchableOpacity
+              onPress={() => setHookPreviewPlaying(hookPreviewPlaying === index ? null : index)}
+              activeOpacity={0.9}
+              style={styles.hookVideoContainer}
+            >
+              <Video
+                source={{uri: hook.preview_url}}
+                style={styles.hookVideo}
+                resizeMode="contain"
+                paused={hookPreviewPlaying !== index}
+                repeat
+              />
+              {hookPreviewPlaying !== index && (
+                <View style={styles.playOverlay}>
+                  <View style={styles.playButton}>
+                    <Paragraph style={styles.playIcon}>{'▶'}</Paragraph>
+                  </View>
+                </View>
+              )}
+            </TouchableOpacity>
+          ) : (
+            <View style={[styles.hookVideoContainer, {justifyContent: 'center', alignItems: 'center'}]}>
+              <Paragraph style={{color: '#64748B', fontSize: 13}}>Preview unavailable</Paragraph>
+            </View>
+          )}
+
+          <Paragraph style={styles.hookDescription}>
+            {hook.description || 'AI-generated hook variation'}
+          </Paragraph>
+
+          <TouchableOpacity onPress={() => handleChooseHook(index)}>
+            <LinearGradient
+              colors={index === 0 ? ['#00D4FF', '#00FFB3'] : ['#7C3AED', '#A855F7']}
+              style={styles.hookChooseBtn}
+            >
+              <Paragraph style={styles.hookChooseText}>
+                {index === 0 ? 'USE ORIGINAL' : 'USE THIS HOOK'}
+              </Paragraph>
+            </LinearGradient>
+          </TouchableOpacity>
+        </View>
+      ))}
+
+      <TouchableOpacity
+        onPress={() => { viralCancelledRef.current = true; setEditorState('editor'); }}
+        style={styles.cancelBtn}
+      >
+        <Paragraph style={styles.cancelText}>Cancel</Paragraph>
+      </TouchableOpacity>
+    </View>
+  );
+
   // ── Render: Viral Preview state ──
   const renderViralPreview = () => (
     <View style={styles.previewContainer}>
@@ -1585,6 +1836,51 @@ export default function VideoEditorScreen({navigation}: any) {
           <Paragraph style={styles.viralSummaryText}>{viralEditSummary}</Paragraph>
         </View>
       ) : null}
+
+      {/* Regenerate / Tweak buttons */}
+      <View style={styles.regenRow}>
+        <TouchableOpacity onPress={handleRegenerate} style={styles.regenBtn}>
+          <Paragraph style={styles.regenIcon}>{'↻'}</Paragraph>
+          <Paragraph style={styles.regenText}>Regenerate</Paragraph>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => setShowTweakInput(true)} style={styles.tweakBtn}>
+          <Paragraph style={styles.regenIcon}>{'✎'}</Paragraph>
+          <Paragraph style={styles.regenText}>Tweak</Paragraph>
+        </TouchableOpacity>
+      </View>
+
+      {/* Tweak feedback input */}
+      {showTweakInput && (
+        <View style={styles.tweakInputContainer}>
+          <Paragraph style={styles.tweakLabel}>What would you like to change?</Paragraph>
+          <TextInput
+            style={styles.tweakInput}
+            value={tweakFeedback}
+            onChangeText={setTweakFeedback}
+            placeholder="e.g. More zoom effects, slower pacing, remove text overlays..."
+            placeholderTextColor="#64748B"
+            multiline
+            maxLength={500}
+          />
+          <View style={styles.tweakActions}>
+            <TouchableOpacity
+              onPress={() => { setShowTweakInput(false); setTweakFeedback(''); }}
+              style={styles.tweakCancelBtn}
+            >
+              <Paragraph style={styles.tweakCancelText}>Cancel</Paragraph>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => handleTweak(tweakFeedback)}
+              disabled={!tweakFeedback.trim()}
+              style={[styles.tweakSubmitBtn, !tweakFeedback.trim() && {opacity: 0.5}]}
+            >
+              <LinearGradient colors={['#FF6B00', '#FF2D87']} style={styles.tweakSubmitGradient}>
+                <Paragraph style={styles.tweakSubmitText}>Apply</Paragraph>
+              </LinearGradient>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
 
       <View style={styles.previewActions}>
         <TouchableOpacity onPress={() => setEditorState('editor')} style={styles.rejectBtn}>
@@ -1863,6 +2159,7 @@ export default function VideoEditorScreen({navigation}: any) {
           {editorState === 'editor' && renderEditor()}
           {/* AI Edit disabled for v1 launch */}
           {editorState === 'viral_processing' && renderViralProcessing()}
+          {editorState === 'hook_selection' && renderHookSelection()}
           {editorState === 'viral_preview' && renderViralPreview()}
         </Animated.View>
       </ScrollView>
@@ -2320,6 +2617,99 @@ const styles = StyleSheet.create({
   },
   acceptText: {color: '#050810', fontSize: 14, fontWeight: '700'},
 
+  // Regenerate / Tweak
+  regenRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 10,
+    marginBottom: 4,
+  },
+  regenBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#1E293B',
+    borderRadius: 10,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: '#334155',
+  },
+  tweakBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#1E293B',
+    borderRadius: 10,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: '#334155',
+  },
+  regenIcon: {
+    color: '#00D4FF',
+    fontSize: 16,
+    fontWeight: '700',
+    marginRight: 6,
+  },
+  regenText: {
+    color: '#E2E8F0',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  tweakInputContainer: {
+    backgroundColor: '#0C1220',
+    borderRadius: 12,
+    padding: 14,
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: '#1E293B',
+  },
+  tweakLabel: {
+    color: '#94A3B8',
+    fontSize: 12,
+    fontWeight: '600',
+    letterSpacing: 0.5,
+    marginBottom: 8,
+  },
+  tweakInput: {
+    backgroundColor: '#050810',
+    borderRadius: 8,
+    padding: 12,
+    color: '#E2E8F0',
+    fontSize: 14,
+    minHeight: 60,
+    textAlignVertical: 'top',
+    borderWidth: 1,
+    borderColor: '#1E293B',
+  },
+  tweakActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 10,
+    marginTop: 10,
+  },
+  tweakCancelBtn: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+  },
+  tweakCancelText: {
+    color: '#64748B',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  tweakSubmitBtn: {},
+  tweakSubmitGradient: {
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 20,
+  },
+  tweakSubmitText: {
+    color: '#FFF',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+
   // Multi-file list
   fileListContainer: {marginBottom: 10, paddingHorizontal: 4},
   fileChip: {
@@ -2418,6 +2808,80 @@ const styles = StyleSheet.create({
   },
   viralSummaryLabel: {color: '#00FFB3', fontSize: 11, fontWeight: '700', letterSpacing: 0.5, marginBottom: 6},
   viralSummaryText: {color: '#CBD5E1', fontSize: 13, lineHeight: 20},
+
+  // Hook Selection
+  hookSelectionContainer: {
+    paddingHorizontal: 16,
+    paddingTop: 8,
+  },
+  hookSelectionTitle: {
+    color: '#FFFFFF',
+    fontSize: 22,
+    fontWeight: '700',
+    textAlign: 'center',
+    marginBottom: 4,
+  },
+  hookSelectionSubtitle: {
+    color: '#64748B',
+    fontSize: 13,
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  hookCard: {
+    backgroundColor: '#0C1220',
+    borderWidth: 1,
+    borderColor: '#1E293B',
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 16,
+  },
+  hookCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  hookBadge: {
+    backgroundColor: '#1E293B',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  hookBadgeText: {
+    color: '#00D4FF',
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 1,
+  },
+  hookVideoContainer: {
+    width: '100%',
+    aspectRatio: 9 / 16,
+    maxHeight: 280,
+    backgroundColor: '#000',
+    borderRadius: 10,
+    overflow: 'hidden',
+    marginBottom: 10,
+  },
+  hookVideo: {
+    width: '100%',
+    height: '100%',
+  },
+  hookDescription: {
+    color: '#94A3B8',
+    fontSize: 13,
+    lineHeight: 18,
+    marginBottom: 12,
+  },
+  hookChooseBtn: {
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  hookChooseText: {
+    color: '#050810',
+    fontSize: 14,
+    fontWeight: '700',
+  },
 
   // Plan styles removed
 });

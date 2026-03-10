@@ -449,7 +449,13 @@ export const ApiService = {
   /** Poll Make Viral task status */
   async editorPollViral(taskId: string) {
     const res = await api.get(`/editor/make-viral/status/${taskId}`, {timeout: 15000});
-    return res.data; // { task_id, state, video_url?, edit_summary?, captions?, error_message? }
+    return res.data; // { task_id, state, video_url?, edit_summary?, captions?, hooks?, error_message? }
+  },
+
+  /** Choose a hook variant and resume Make Viral pipeline */
+  async editorChooseHook(taskId: string, hookIndex: number) {
+    const res = await api.post('/editor/choose-hook', {task_id: taskId, hook_index: hookIndex}, {timeout: 30000});
+    return res.data; // { task_id, state }
   },
 
   /** Copy Style — upload reference video + user's video filename */
@@ -472,6 +478,20 @@ export const ApiService = {
   /** Poll Copy Style task status */
   async editorPollCopyStyle(taskId: string) {
     const res = await api.get(`/editor/copy-style/status/${taskId}`, {timeout: 15000});
+    return res.data; // { task_id, state, video_url?, edit_summary?, captions?, error_message? }
+  },
+
+  /** Regenerate or tweak a Make Viral / Copy Style result */
+  async regenerateEdit(parentTaskId: string, feedback?: string) {
+    const body: any = {parent_task_id: parentTaskId};
+    if (feedback) body.feedback = feedback;
+    const res = await api.post('/editor/regenerate', body, {timeout: 30000});
+    return res.data; // { task_id, state }
+  },
+
+  /** Poll regenerate/tweak task status */
+  async pollRegenerateStatus(taskId: string) {
+    const res = await api.get(`/editor/regenerate/status/${taskId}`, {timeout: 15000});
     return res.data; // { task_id, state, video_url?, edit_summary?, captions?, error_message? }
   },
 
