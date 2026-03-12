@@ -83,7 +83,7 @@ type CaptionTimingMode = 'word' | 'phrase' | 'sentence' | 'single-pop';
 type CaptionFontStyle = 'bold-sans' | 'outlined' | 'neon' | 'classic' | 'minimal' | 'impact';
 type CaptionAnimation = 'none' | 'fade' | 'pop' | 'slide-up' | 'typewriter' | 'karaoke';
 type ActiveTool = 'none' | 'captions' | 'speed' | 'filters';
-type EditorState = 'select' | 'editor' | 'ai_processing' | 'ai_preview' | 'viral_processing' | 'viral_preview' | 'hook_selection';
+type EditorState = 'select' | 'editor' | 'ai_processing' | 'ai_preview' | 'viral_processing' | 'viral_preview' | 'hook_selection' | 'text_review';
 
 const TIMING_MODES: {key: CaptionTimingMode; label: string; desc: string}[] = [
   {key: 'word', label: 'Word by Word', desc: 'Each word highlights as spoken'},
@@ -150,11 +150,46 @@ const EDIT_VIBES = [
   {key: 'trending', label: 'Trending Effects', icon: '✨'},
 ];
 
-const COPY_STYLE_MODES = [
-  {key: 'full', label: 'Full Edit Style', icon: '🎯', desc: 'Everything: color, effects, zooms, transitions, speed, text, captions', warn: 'May affect audio sync'},
-  {key: 'visual', label: 'Visual Style Only', icon: '👁', desc: 'Color grading, effects, zooms, text style, captions', warn: 'Audio stays untouched'},
-  {key: 'color_text', label: 'Color & Text Only', icon: '🎨', desc: 'Color grading, filter, text overlay style, caption style', warn: 'Lightest touch'},
-  {key: 'effects', label: 'Effects & Motion', icon: '💫', desc: 'Zooms, transitions, effects, camera movements', warn: 'No color or text changes'},
+const EDIT_INTENSITIES = [
+  {key: 'subtle', label: 'Subtle', icon: '🌿', desc: 'Light touch — minimal effects, natural feel'},
+  {key: 'balanced', label: 'Balanced', icon: '⚖️', desc: 'Professional edit — just right'},
+  {key: 'heavy', label: 'Heavy', icon: '💥', desc: 'Maximum effects — eye-catching edits'},
+];
+
+const COLOR_GRADES = [
+  {key: 'original', label: 'Original'},
+  {key: 'warm', label: 'Warm'},
+  {key: 'cool', label: 'Cool'},
+  {key: 'cinematic', label: 'Cinematic'},
+  {key: 'vibrant', label: 'Vibrant'},
+  {key: 'moody', label: 'Moody'},
+];
+
+const CAPTION_STYLES = [
+  {key: 'none', label: 'No Captions'},
+  {key: 'bold_white', label: 'Bold White'},
+  {key: 'highlight', label: 'Word Highlight'},
+  {key: 'minimal', label: 'Minimal Subtitle'},
+  {key: 'karaoke', label: 'Karaoke Pop'},
+];
+
+const PLATFORMS = [
+  {key: 'tiktok', label: 'TikTok', icon: '🎵'},
+  {key: 'reels', label: 'Reels', icon: '📸'},
+  {key: 'shorts', label: 'Shorts', icon: '▶️'},
+  {key: 'linkedin', label: 'LinkedIn', icon: '💼'},
+  {key: 'x', label: 'X / Twitter', icon: '𝕏'},
+];
+
+const COPY_STYLE_CATEGORIES = [
+  {key: 'color', label: 'Color Grading'},
+  {key: 'zooms', label: 'Zooms'},
+  {key: 'transitions', label: 'Transitions'},
+  {key: 'effects', label: 'Effects'},
+  {key: 'animations', label: 'Animations'},
+  {key: 'text', label: 'Text Overlays'},
+  {key: 'captions', label: 'Captions'},
+  {key: 'speed', label: 'Speed Changes'},
 ];
 
 export default function VideoEditorScreen({navigation}: any) {
@@ -222,13 +257,32 @@ export default function VideoEditorScreen({navigation}: any) {
   const [selectedAudience, setSelectedAudience] = useState('');
   const [selectedVibe, setSelectedVibe] = useState('');
   const [videoTopic, setVideoTopic] = useState('');
+  const [editIntensity, setEditIntensity] = useState('balanced');
+  const [colorGrade, setColorGrade] = useState('original');
+  const [captionStyle, setCaptionStyle] = useState('bold_white');
+  const [textOverlays, setTextOverlays] = useState(true);
+  const [platform, setPlatform] = useState('tiktok');
+  const [audioMode, setAudioMode] = useState<'video_audio' | 'custom_audio'>('video_audio');
+  const [audioFile, setAudioFile] = useState<{uri: string; filename: string; serverFilename: string} | null>(null);
+  const [audioUploading, setAudioUploading] = useState(false);
   const [viralTaskId, setViralTaskId] = useState<string | null>(null);
   const [viralStatus, setViralStatus] = useState('');
   const [viralPreviewUrl, setViralPreviewUrl] = useState<string | null>(null);
   const [viralEditSummary, setViralEditSummary] = useState('');
   const [viralPreviewPlaying, setViralPreviewPlaying] = useState(false);
-  const [hookPreviews, setHookPreviews] = useState<Array<{preview_url: string | null; description: string; hook_trim_start?: number; opening_text?: any}>>([]);
-  const [hookPreviewPlaying, setHookPreviewPlaying] = useState<number | null>(null);
+  const [hookOptions, setHookOptions] = useState<Array<{key: string; label: string; description: string}>>([]);
+  const [selectedHookOption, setSelectedHookOption] = useState<string>('');
+  const [customHookText, setCustomHookText] = useState('');
+  const [hookVideoUrl, setHookVideoUrl] = useState<string | null>(null);
+
+  // ── Text Review ──
+  const [reviewTextOverlays, setReviewTextOverlays] = useState<Array<{index: number; time: number; duration: number; text: string; position: string; params: any}>>([]);
+  const [textDecisions, setTextDecisions] = useState<Record<number, {action: 'keep' | 'edit' | 'remove'; new_text?: string}>>({});
+  const [textReviewVideoUrl, setTextReviewVideoUrl] = useState<string | null>(null);
+  const [textReviewDuration, setTextReviewDuration] = useState(0);
+  const textReviewVideoRef = useRef<any>(null);
+  const [textReviewPlaying, setTextReviewPlaying] = useState(false);
+  const [activeOverlayIndex, setActiveOverlayIndex] = useState<number | null>(null);
 
   // ── Regenerate / Tweak ──
   const [showTweakInput, setShowTweakInput] = useState(false);
@@ -236,7 +290,7 @@ export default function VideoEditorScreen({navigation}: any) {
 
   // ── Copy Style ──
   const [showCopyStylePicker, setShowCopyStylePicker] = useState(false);
-  const [copyStyleMode, setCopyStyleMode] = useState('visual');
+  const [copyStyleCategories, setCopyStyleCategories] = useState<Set<string>>(new Set(['color', 'zooms', 'transitions', 'effects', 'animations', 'text', 'captions']));
   const [pendingRefUri, setPendingRefUri] = useState<string | null>(null);
 
   // ── Animations ──
@@ -724,6 +778,31 @@ export default function VideoEditorScreen({navigation}: any) {
     setAiSegmentIndex(null);
   };
 
+  // ── Audio Picker ──
+  const pickAudioFile = async () => {
+    try {
+      const res = await DocumentPicker.pick({
+        type: [DocumentPicker.types.audio],
+      });
+      const file = res[0];
+      if (!file?.uri) return;
+
+      setAudioUploading(true);
+      const uploaded = await ApiService.editorUploadAudio(file.uri, file.name || 'audio.mp3');
+      setAudioFile({
+        uri: file.uri,
+        filename: file.name || 'audio.mp3',
+        serverFilename: uploaded.filename,
+      });
+      setAudioUploading(false);
+    } catch (err: any) {
+      setAudioUploading(false);
+      if (!DocumentPicker.isCancel(err)) {
+        Alert.alert('Error', 'Failed to upload audio file');
+      }
+    }
+  };
+
   // ── Make Viral ──
   const viralCancelledRef = useRef(false);
 
@@ -735,12 +814,21 @@ export default function VideoEditorScreen({navigation}: any) {
     setViralStatus('Starting...');
 
     try {
-      const prefs = {
+      const prefs: any = {
         goal: selectedGoal,
         audience: selectedAudience,
         vibe: selectedVibe,
         topic: videoTopic,
+        intensity: editIntensity,
+        color_grade: colorGrade,
+        caption_style: captionStyle,
+        text_overlays: textOverlays,
+        platform: platform,
+        audio_mode: audioMode,
       };
+      if (audioMode === 'custom_audio' && audioFile?.serverFilename) {
+        prefs.audio_filename = audioFile.serverFilename;
+      }
 
       // Multi-file: send files array; single-file: send video_filename
       const isMultiFile = uploadedFiles.length > 1;
@@ -765,8 +853,24 @@ export default function VideoEditorScreen({navigation}: any) {
 
           if (status.state === 'HOOKS_READY') {
             if (viralCancelledRef.current) return;
-            setHookPreviews(status.hooks || []);
+            setHookOptions(status.hook_options || []);
+            setHookVideoUrl(status.video_url || null);
+            setSelectedHookOption('');
+            setCustomHookText('');
             setEditorState('hook_selection');
+            return;
+          }
+
+          if (status.state === 'TEXT_REVIEW') {
+            if (viralCancelledRef.current) return;
+            const overlays = status.text_overlays || [];
+            setReviewTextOverlays(overlays);
+            setTextReviewVideoUrl(status.video_url || null);
+            setTextReviewDuration(status.duration || 0);
+            const defaults: Record<number, {action: 'keep' | 'edit' | 'remove'}> = {};
+            overlays.forEach((t: any) => { defaults[t.index] = {action: 'keep'}; });
+            setTextDecisions(defaults);
+            setEditorState('text_review');
             return;
           }
 
@@ -791,7 +895,7 @@ export default function VideoEditorScreen({navigation}: any) {
             'TRANSCRIBING': fileCount > 1 ? `Analyzing ${fileCount} files...` : 'Transcribing audio...',
             'SEARCHING': 'Searching trending styles...',
             'ANALYZING': fileCount > 1 ? `Planning multi-file edit...` : 'Analyzing your video...',
-            'GENERATING_HOOKS': 'Creating hook options...',
+            'GENERATING_HOOKS': 'Preparing hook options...',
             'RESEARCHING': 'Researching edit techniques...',
             'RENDERING': 'Rendering viral edit...',
           };
@@ -818,7 +922,7 @@ export default function VideoEditorScreen({navigation}: any) {
       const refUri = res[0]?.uri;
       if (!refUri) return;
       setPendingRefUri(refUri);
-      setCopyStyleMode('visual');
+      setCopyStyleCategories(new Set(['color', 'zooms', 'transitions', 'effects', 'animations', 'text', 'captions']));
       setShowCopyStylePicker(true);
     } catch (err: any) {
       if (!DocumentPicker.isCancel(err)) {
@@ -828,9 +932,18 @@ export default function VideoEditorScreen({navigation}: any) {
   };
 
   const startCopyStyle = () => {
-    if (!pendingRefUri) return;
+    if (!pendingRefUri || copyStyleCategories.size === 0) return;
     setShowCopyStylePicker(false);
-    handleCopyStyle(pendingRefUri, copyStyleMode);
+    handleCopyStyle(pendingRefUri, Array.from(copyStyleCategories).join(','));
+  };
+
+  const toggleCopyCategory = (key: string) => {
+    setCopyStyleCategories(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
   };
 
   const handleCopyStyle = async (referenceUri: string, mode: string = 'visual') => {
@@ -920,8 +1033,8 @@ export default function VideoEditorScreen({navigation}: any) {
         }
 
         const statusMap: Record<string, string> = {
-          'PLANNING': 'Planning new edit...',
-          'ANALYZING': 'Analyzing footage...',
+          'PLANNING': 'Re-planning edit...',
+          'ANALYZING': 'Applying your tweaks...',
           'RESEARCHING': 'Researching techniques...',
           'RENDERING': 'Rendering edit...',
         };
@@ -931,24 +1044,6 @@ export default function VideoEditorScreen({navigation}: any) {
       }
     }
     throw new Error('Timed out');
-  };
-
-  const handleRegenerate = async () => {
-    if (!viralTaskId) return;
-    try {
-      viralCancelledRef.current = false;
-      setViralPreviewPlaying(false);
-      setEditorState('viral_processing');
-      setViralStatus('Regenerating edit...');
-      const {task_id} = await ApiService.regenerateEdit(viralTaskId);
-      setViralTaskId(task_id);
-      await pollRegenerateTask(task_id);
-    } catch (err: any) {
-      if (viralCancelledRef.current) return;
-      const msg = err?.response?.data?.error || err?.message || 'Failed to regenerate';
-      Alert.alert('Regenerate Failed', msg);
-      setEditorState('viral_preview');
-    }
   };
 
   const handleTweak = async (feedback: string) => {
@@ -972,53 +1067,90 @@ export default function VideoEditorScreen({navigation}: any) {
   };
 
   // ── Choose Hook ──
-  const handleChooseHook = async (hookIndex: number) => {
-    if (!viralTaskId) return;
+  const handleChooseHook = async () => {
+    if (!viralTaskId || !selectedHookOption) return;
     setEditorState('viral_processing');
-    setViralStatus('Applying chosen hook...');
+    setViralStatus('Applying hook preference...');
     viralCancelledRef.current = false;
 
     try {
-      await ApiService.editorChooseHook(viralTaskId, hookIndex);
+      const hookDesc = selectedHookOption === 'custom' ? customHookText.trim() : undefined;
+      const chooseResult = await ApiService.editorChooseHook(viralTaskId, selectedHookOption, hookDesc);
+
+      // If text review is needed, go to that state immediately
+      if (chooseResult.state === 'TEXT_REVIEW') {
+        const status = await ApiService.editorPollViral(viralTaskId);
+        const overlays = status.text_overlays || [];
+        setReviewTextOverlays(overlays);
+        setTextReviewVideoUrl(status.video_url || null);
+        setTextReviewDuration(status.duration || 0);
+        const defaults: Record<number, {action: 'keep' | 'edit' | 'remove'}> = {};
+        overlays.forEach((t: any) => { defaults[t.index] = {action: 'keep'}; });
+        setTextDecisions(defaults);
+        setEditorState('text_review');
+        return;
+      }
 
       // Resume polling for the rest of the pipeline
-      const maxWait = 60 * 60 * 1000;
-      const start = Date.now();
+      await pollUntilDone(viralTaskId);
+    } catch (err: any) {
+      if (viralCancelledRef.current) return;
+      const msg = err?.response?.data?.error || err?.message || 'Something went wrong.';
+      Alert.alert('Make Viral Failed', msg);
+      setEditorState('editor');
+    }
+  };
 
-      while (Date.now() - start < maxWait) {
-        if (viralCancelledRef.current) return;
-        await new Promise(r => setTimeout(r, 5000));
-        if (viralCancelledRef.current) return;
-
-        try {
-          const status = await ApiService.editorPollViral(viralTaskId);
-
-          if (status.state === 'SUCCEEDED') {
-            if (viralCancelledRef.current) return;
-            setViralPreviewUrl(status.video_url);
-            setViralEditSummary(status.edit_summary || '');
-            if (Array.isArray(status.captions) && status.captions.length > 0) {
-              setCaptionWords(status.captions);
-              setCaptionEnabled(true);
-            }
-            setEditorState('viral_preview');
-            return;
+  // ── Poll until done (shared for post-hook and post-text-review) ──
+  const pollUntilDone = async (taskId: string) => {
+    const maxWait = 60 * 60 * 1000;
+    const start = Date.now();
+    while (Date.now() - start < maxWait) {
+      if (viralCancelledRef.current) return;
+      await new Promise(r => setTimeout(r, 5000));
+      if (viralCancelledRef.current) return;
+      try {
+        const status = await ApiService.editorPollViral(taskId);
+        if (status.state === 'SUCCEEDED') {
+          if (viralCancelledRef.current) return;
+          setViralPreviewUrl(status.video_url);
+          setViralEditSummary(status.edit_summary || '');
+          if (Array.isArray(status.captions) && status.captions.length > 0) {
+            setCaptionWords(status.captions);
+            setCaptionEnabled(true);
           }
-
-          if (status.state === 'FAILED') {
-            throw new Error(status.error_message || 'Make Viral failed');
-          }
-
-          const statusMap: Record<string, string> = {
-            'RESEARCHING': 'Researching edit techniques...',
-            'RENDERING': 'Rendering viral edit...',
-          };
-          setViralStatus(statusMap[status.state] || 'Processing...');
-        } catch (pollErr: any) {
-          if (pollErr.message?.includes('failed')) throw pollErr;
+          setEditorState('viral_preview');
+          return;
         }
+        if (status.state === 'FAILED') {
+          throw new Error(status.error_message || 'Make Viral failed');
+        }
+        const statusMap: Record<string, string> = {
+          'RESEARCHING': 'Researching edit techniques...',
+          'RENDERING': 'Rendering viral edit...',
+        };
+        setViralStatus(statusMap[status.state] || 'Processing...');
+      } catch (pollErr: any) {
+        if (pollErr.message?.includes('failed')) throw pollErr;
       }
-      throw new Error('Timed out');
+    }
+    throw new Error('Timed out');
+  };
+
+  // ── Text Decisions ──
+  const handleTextDecisions = async () => {
+    if (!viralTaskId) return;
+    setEditorState('viral_processing');
+    setViralStatus('Applying text decisions...');
+    viralCancelledRef.current = false;
+
+    try {
+      const decisions = reviewTextOverlays.map(t => ({
+        index: t.index,
+        ...(textDecisions[t.index] || {action: 'keep' as const}),
+      }));
+      await ApiService.editorTextDecisions(viralTaskId, decisions);
+      await pollUntilDone(viralTaskId);
     } catch (err: any) {
       if (viralCancelledRef.current) return;
       const msg = err?.response?.data?.error || err?.message || 'Something went wrong.';
@@ -1543,7 +1675,8 @@ export default function VideoEditorScreen({navigation}: any) {
   // ── Render: Niche Picker ──
   const canStartViral = () => {
     const hasNiche = selectedNiche === 'others' ? customNiche.trim().length > 0 : selectedNiche.length > 0;
-    return hasNiche && selectedGoal && selectedAudience && selectedVibe;
+    const audioReady = audioMode === 'video_audio' || (audioMode === 'custom_audio' && !!audioFile);
+    return hasNiche && selectedGoal && selectedAudience && selectedVibe && audioReady;
   };
 
   const startViral = () => {
@@ -1636,7 +1769,85 @@ export default function VideoEditorScreen({navigation}: any) {
           ))}
         </View>
 
-        {/* 5. Topic (optional) */}
+        {/* 5. Platform */}
+        <Paragraph style={styles.sectionLabel}>PLATFORM</Paragraph>
+        <View style={styles.nicheChipGrid}>
+          {PLATFORMS.map(p => (
+            <TouchableOpacity
+              key={p.key}
+              onPress={() => setPlatform(p.key)}
+              style={[styles.nicheChip, platform === p.key && styles.chipActive]}
+            >
+              <Paragraph style={[styles.nicheChipText, platform === p.key && styles.chipTextActive]}>
+                {p.icon} {p.label}
+              </Paragraph>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        {/* 6. Edit Intensity */}
+        <Paragraph style={styles.sectionLabel}>EDIT INTENSITY</Paragraph>
+        <View style={styles.nicheChipGrid}>
+          {EDIT_INTENSITIES.map(i => (
+            <TouchableOpacity
+              key={i.key}
+              onPress={() => setEditIntensity(i.key)}
+              style={[styles.nicheChip, editIntensity === i.key && styles.chipActive]}
+            >
+              <Paragraph style={[styles.nicheChipText, editIntensity === i.key && styles.chipTextActive]}>
+                {i.icon} {i.label}
+              </Paragraph>
+            </TouchableOpacity>
+          ))}
+        </View>
+        <Paragraph style={styles.intensityDesc}>
+          {EDIT_INTENSITIES.find(i => i.key === editIntensity)?.desc}
+        </Paragraph>
+
+        {/* 7. Color Grade */}
+        <Paragraph style={styles.sectionLabel}>COLOR GRADE</Paragraph>
+        <View style={styles.nicheChipGrid}>
+          {COLOR_GRADES.map(c => (
+            <TouchableOpacity
+              key={c.key}
+              onPress={() => setColorGrade(c.key)}
+              style={[styles.nicheChip, colorGrade === c.key && styles.chipActive]}
+            >
+              <Paragraph style={[styles.nicheChipText, colorGrade === c.key && styles.chipTextActive]}>
+                {c.label}
+              </Paragraph>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        {/* 8. Caption Style */}
+        <Paragraph style={styles.sectionLabel}>CAPTION STYLE</Paragraph>
+        <View style={styles.nicheChipGrid}>
+          {CAPTION_STYLES.map(cs => (
+            <TouchableOpacity
+              key={cs.key}
+              onPress={() => setCaptionStyle(cs.key)}
+              style={[styles.nicheChip, captionStyle === cs.key && styles.chipActive]}
+            >
+              <Paragraph style={[styles.nicheChipText, captionStyle === cs.key && styles.chipTextActive]}>
+                {cs.label}
+              </Paragraph>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        {/* 9. Text Overlays Toggle */}
+        <View style={styles.toggleRow}>
+          <Paragraph style={styles.toggleLabel}>TEXT OVERLAYS</Paragraph>
+          <TouchableOpacity
+            onPress={() => setTextOverlays(!textOverlays)}
+            style={[styles.toggleBtn, textOverlays && styles.toggleBtnActive]}
+          >
+            <Paragraph style={styles.toggleBtnText}>{textOverlays ? 'ON' : 'OFF'}</Paragraph>
+          </TouchableOpacity>
+        </View>
+
+        {/* 10. Topic (optional) */}
         <Paragraph style={styles.sectionLabel}>WHAT'S THE VIDEO ABOUT? (optional)</Paragraph>
         <TextInput
           style={[styles.customNicheInput, {marginBottom: 20}]}
@@ -1646,6 +1857,49 @@ export default function VideoEditorScreen({navigation}: any) {
           onChangeText={setVideoTopic}
           maxLength={100}
         />
+
+        {/* 11. Audio Mode */}
+        <Paragraph style={styles.sectionLabel}>AUDIO</Paragraph>
+        <View style={styles.chipRow}>
+          <TouchableOpacity
+            onPress={() => { setAudioMode('video_audio'); setAudioFile(null); }}
+            style={[styles.nicheChip, audioMode === 'video_audio' && styles.chipActive]}
+          >
+            <Paragraph style={[styles.nicheChipText, audioMode === 'video_audio' && styles.chipTextActive]}>
+              Use video's audio
+            </Paragraph>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => setAudioMode('custom_audio')}
+            style={[styles.nicheChip, audioMode === 'custom_audio' && styles.chipActive]}
+          >
+            <Paragraph style={[styles.nicheChipText, audioMode === 'custom_audio' && styles.chipTextActive]}>
+              I have an audio track
+            </Paragraph>
+          </TouchableOpacity>
+        </View>
+        {audioMode === 'custom_audio' && (
+          <View style={{marginBottom: 16}}>
+            {audioFile ? (
+              <View style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#0C1220', borderRadius: 10, padding: 12, borderWidth: 1, borderColor: '#1E293B'}}>
+                <Paragraph style={{color: '#00FFB3', flex: 1, fontSize: 13}} numberOfLines={1}>{audioFile.filename}</Paragraph>
+                <TouchableOpacity onPress={() => { setAudioFile(null); }} style={{marginLeft: 8}}>
+                  <Paragraph style={{color: '#FF4444', fontSize: 13}}>Remove</Paragraph>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <TouchableOpacity
+                onPress={pickAudioFile}
+                disabled={audioUploading}
+                style={{backgroundColor: '#0C1220', borderRadius: 10, padding: 14, borderWidth: 1, borderColor: '#1E293B', alignItems: 'center'}}
+              >
+                <Paragraph style={{color: audioUploading ? '#64748B' : '#00D4FF', fontSize: 14, fontWeight: '600'}}>
+                  {audioUploading ? 'Uploading...' : 'Select Audio File'}
+                </Paragraph>
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
 
         {/* Start Button */}
         <TouchableOpacity
@@ -1677,24 +1931,33 @@ export default function VideoEditorScreen({navigation}: any) {
     <View style={styles.nichePickerOverlay}>
       <View style={styles.nichePickerCard}>
         <Paragraph style={styles.sectionLabel}>WHAT TO COPY?</Paragraph>
-        {COPY_STYLE_MODES.map(m => (
-          <TouchableOpacity
-            key={m.key}
-            onPress={() => setCopyStyleMode(m.key)}
-            style={[styles.copyStyleOption, copyStyleMode === m.key && styles.copyStyleOptionActive]}
-          >
-            <View style={{flexDirection: 'row', alignItems: 'center', marginBottom: 4}}>
-              <Paragraph style={{fontSize: 18, marginRight: 8}}>{m.icon}</Paragraph>
-              <Paragraph style={[styles.copyStyleLabel, copyStyleMode === m.key && {color: '#FFF'}]}>{m.label}</Paragraph>
-            </View>
-            <Paragraph style={styles.copyStyleDesc}>{m.desc}</Paragraph>
-            <Paragraph style={[styles.copyStyleWarn, m.key === 'full' ? {color: '#FF6B6B'} : {color: '#64748B'}]}>{m.warn}</Paragraph>
-          </TouchableOpacity>
-        ))}
+        <Paragraph style={{color: '#94A3B8', fontSize: 12, marginBottom: 12}}>Select which editing elements to replicate</Paragraph>
+        <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 8}}>
+          {COPY_STYLE_CATEGORIES.map(c => {
+            const active = copyStyleCategories.has(c.key);
+            return (
+              <TouchableOpacity
+                key={c.key}
+                onPress={() => toggleCopyCategory(c.key)}
+                style={{
+                  paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20,
+                  borderWidth: 1.5,
+                  borderColor: active ? '#7C3AED' : '#1E293B',
+                  backgroundColor: active ? 'rgba(124,58,237,0.15)' : 'transparent',
+                }}
+              >
+                <Paragraph style={{color: active ? '#A78BFA' : '#94A3B8', fontSize: 13, fontWeight: '600'}}>{c.label}</Paragraph>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+        {copyStyleCategories.has('speed') && (
+          <Paragraph style={{color: '#FF6B6B', fontSize: 11, marginTop: 8, fontStyle: 'italic'}}>Speed changes may affect audio sync</Paragraph>
+        )}
 
-        <TouchableOpacity onPress={startCopyStyle} style={{marginTop: 16}}>
+        <TouchableOpacity onPress={startCopyStyle} style={{marginTop: 16}} disabled={copyStyleCategories.size === 0}>
           <LinearGradient
-            colors={['#7C3AED', '#2563EB']}
+            colors={copyStyleCategories.size > 0 ? ['#7C3AED', '#2563EB'] : ['#374151', '#374151']}
             start={{x: 0, y: 0}}
             end={{x: 1, y: 0}}
             style={{borderRadius: 14, paddingVertical: 14, alignItems: 'center'}}
@@ -1732,66 +1995,251 @@ export default function VideoEditorScreen({navigation}: any) {
   );
 
   // ── Render: Hook Selection state ──
+  const renderTextReview = () => {
+    const formatTime = (ms: number) => {
+      const s = Math.floor(ms / 1000);
+      const m = Math.floor(s / 60);
+      const sec = s % 60;
+      return `${m}:${sec.toString().padStart(2, '0')}`;
+    };
+
+    const seekToOverlay = (overlay: any) => {
+      setActiveOverlayIndex(overlay.index);
+      setTextReviewPlaying(false);
+      if (textReviewVideoRef.current) {
+        textReviewVideoRef.current.seek(overlay.time / 1000);
+      }
+    };
+
+    return (
+      <View style={styles.hookSelectionContainer}>
+        <Title style={styles.hookSelectionTitle}>Review Text Overlays</Title>
+        <Paragraph style={styles.hookSelectionSubtitle}>
+          Tap a text to see where it appears in the video
+        </Paragraph>
+
+        {/* Video preview — seek to see text placement */}
+        {textReviewVideoUrl && (
+          <TouchableOpacity
+            onPress={() => setTextReviewPlaying(!textReviewPlaying)}
+            activeOpacity={0.9}
+            style={{
+              width: '100%',
+              aspectRatio: 9 / 16,
+              maxHeight: 280,
+              backgroundColor: '#000',
+              borderRadius: 12,
+              overflow: 'hidden',
+              marginBottom: 14,
+              alignSelf: 'center',
+            }}
+          >
+            <Video
+              ref={textReviewVideoRef}
+              source={{uri: textReviewVideoUrl}}
+              style={{width: '100%', height: '100%'}}
+              resizeMode="contain"
+              paused={!textReviewPlaying}
+              repeat
+            />
+            {!textReviewPlaying && (
+              <View style={styles.playOverlay}>
+                <View style={styles.playButton}>
+                  <Paragraph style={styles.playIcon}>{'▶'}</Paragraph>
+                </View>
+              </View>
+            )}
+          </TouchableOpacity>
+        )}
+
+        <ScrollView style={{maxHeight: 320}} showsVerticalScrollIndicator={false}>
+          {reviewTextOverlays.map((overlay) => {
+            const decision = textDecisions[overlay.index] || {action: 'keep'};
+            const isRemoved = decision.action === 'remove';
+            const isEditing = decision.action === 'edit';
+            const isActive = activeOverlayIndex === overlay.index;
+
+            return (
+              <View key={overlay.index} style={{
+                backgroundColor: isRemoved ? '#1a0a0a' : isActive ? '#0D1A2E' : '#0C1220',
+                borderRadius: 12,
+                padding: 14,
+                marginBottom: 10,
+                borderWidth: isActive ? 2 : 1,
+                borderColor: isRemoved ? '#FF4444' : isActive ? '#00D4FF' : isEditing ? '#00D4FF' : '#1E293B',
+                opacity: isRemoved ? 0.5 : 1,
+              }}>
+                <TouchableOpacity onPress={() => seekToOverlay(overlay)}>
+                  <View style={{flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8}}>
+                    <View style={{flexDirection: 'row', alignItems: 'center'}}>
+                      <Paragraph style={{color: isActive ? '#00D4FF' : '#64748B', fontSize: 12, fontWeight: isActive ? '700' : '400'}}>
+                        {formatTime(overlay.time)} — {formatTime(overlay.time + overlay.duration)}
+                      </Paragraph>
+                      {isActive && <Paragraph style={{color: '#00D4FF', fontSize: 10, marginLeft: 6}}>{'(viewing)'}</Paragraph>}
+                    </View>
+                    <Paragraph style={{color: '#64748B', fontSize: 12}}>
+                      {overlay.position}
+                    </Paragraph>
+                  </View>
+                </TouchableOpacity>
+
+                {isEditing ? (
+                  <TextInput
+                    style={{
+                      backgroundColor: '#050810',
+                      color: '#FFF',
+                      borderRadius: 8,
+                      padding: 10,
+                      fontSize: 15,
+                      borderWidth: 1,
+                      borderColor: '#00D4FF',
+                      marginBottom: 10,
+                    }}
+                    value={decision.new_text || overlay.text}
+                    onChangeText={(text) => setTextDecisions(prev => ({
+                      ...prev,
+                      [overlay.index]: {action: 'edit', new_text: text},
+                    }))}
+                    multiline
+                  />
+                ) : (
+                  <TouchableOpacity onPress={() => seekToOverlay(overlay)}>
+                    <Paragraph style={{color: isRemoved ? '#666' : '#FFF', fontSize: 15, fontWeight: '600', marginBottom: 10}}>
+                      "{overlay.text}"
+                    </Paragraph>
+                  </TouchableOpacity>
+                )}
+
+                <View style={{flexDirection: 'row', gap: 8}}>
+                  <TouchableOpacity
+                    onPress={() => setTextDecisions(prev => ({...prev, [overlay.index]: {action: 'keep'}}))}
+                    style={{
+                      flex: 1, paddingVertical: 8, borderRadius: 8, alignItems: 'center',
+                      backgroundColor: decision.action === 'keep' ? '#00FFB3' : '#1E293B',
+                    }}
+                  >
+                    <Paragraph style={{color: decision.action === 'keep' ? '#000' : '#64748B', fontWeight: '700', fontSize: 13}}>Keep</Paragraph>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => setTextDecisions(prev => ({...prev, [overlay.index]: {action: 'edit', new_text: overlay.text}}))}
+                    style={{
+                      flex: 1, paddingVertical: 8, borderRadius: 8, alignItems: 'center',
+                      backgroundColor: decision.action === 'edit' ? '#00D4FF' : '#1E293B',
+                    }}
+                  >
+                    <Paragraph style={{color: decision.action === 'edit' ? '#000' : '#64748B', fontWeight: '700', fontSize: 13}}>Edit</Paragraph>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => setTextDecisions(prev => ({...prev, [overlay.index]: {action: 'remove'}}))}
+                    style={{
+                      flex: 1, paddingVertical: 8, borderRadius: 8, alignItems: 'center',
+                      backgroundColor: decision.action === 'remove' ? '#FF4444' : '#1E293B',
+                    }}
+                  >
+                    <Paragraph style={{color: decision.action === 'remove' ? '#FFF' : '#64748B', fontWeight: '700', fontSize: 13}}>Remove</Paragraph>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            );
+          })}
+        </ScrollView>
+
+        <TouchableOpacity onPress={handleTextDecisions} style={{marginTop: 16}}>
+          <LinearGradient
+            colors={['#00D4FF', '#00FFB3']}
+            start={{x: 0, y: 0}}
+            end={{x: 1, y: 0}}
+            style={{borderRadius: 14, paddingVertical: 14, alignItems: 'center'}}
+          >
+            <Paragraph style={{color: '#000', fontSize: 16, fontWeight: '800', letterSpacing: 1}}>
+              CONTINUE
+            </Paragraph>
+          </LinearGradient>
+        </TouchableOpacity>
+      </View>
+    );
+  };
+
   const renderHookSelection = () => (
     <View style={styles.hookSelectionContainer}>
-      <Title style={styles.hookSelectionTitle}>Choose Your Hook</Title>
+      <Title style={styles.hookSelectionTitle}>Hook Preference</Title>
       <Paragraph style={styles.hookSelectionSubtitle}>
-        Pick the opening that grabs attention best
+        How should the opening grab attention?
       </Paragraph>
 
-      {hookPreviews.map((hook, index) => (
-        <View key={index} style={styles.hookCard}>
-          <View style={styles.hookCardHeader}>
-            <View style={styles.hookBadge}>
-              <Paragraph style={styles.hookBadgeText}>
-                {index === 0 ? 'ORIGINAL' : `OPTION ${index + 1}`}
-              </Paragraph>
-            </View>
-          </View>
-
-          {hook.preview_url ? (
+      <ScrollView style={{maxHeight: 420}} showsVerticalScrollIndicator={false}>
+        {hookOptions.map((option) => {
+          const isSelected = selectedHookOption === option.key;
+          return (
             <TouchableOpacity
-              onPress={() => setHookPreviewPlaying(hookPreviewPlaying === index ? null : index)}
-              activeOpacity={0.9}
-              style={styles.hookVideoContainer}
+              key={option.key}
+              onPress={() => setSelectedHookOption(option.key)}
+              activeOpacity={0.8}
+              style={{
+                backgroundColor: isSelected ? '#0C1830' : '#0C1220',
+                borderRadius: 12,
+                padding: 14,
+                marginBottom: 10,
+                borderWidth: 2,
+                borderColor: isSelected ? '#00D4FF' : '#1E293B',
+              }}
             >
-              <Video
-                source={{uri: hook.preview_url}}
-                style={styles.hookVideo}
-                resizeMode="contain"
-                paused={hookPreviewPlaying !== index}
-                repeat
-              />
-              {hookPreviewPlaying !== index && (
-                <View style={styles.playOverlay}>
-                  <View style={styles.playButton}>
-                    <Paragraph style={styles.playIcon}>{'▶'}</Paragraph>
-                  </View>
+              <View style={{flexDirection: 'row', alignItems: 'center', marginBottom: 6}}>
+                <View style={{
+                  width: 20, height: 20, borderRadius: 10,
+                  borderWidth: 2, borderColor: isSelected ? '#00D4FF' : '#64748B',
+                  backgroundColor: isSelected ? '#00D4FF' : 'transparent',
+                  marginRight: 10,
+                  justifyContent: 'center', alignItems: 'center',
+                }}>
+                  {isSelected && <View style={{width: 8, height: 8, borderRadius: 4, backgroundColor: '#000'}} />}
                 </View>
+                <Paragraph style={{color: '#FFF', fontSize: 15, fontWeight: '700'}}>{option.label}</Paragraph>
+              </View>
+              <Paragraph style={{color: '#94A3B8', fontSize: 13, marginLeft: 30}}>{option.description}</Paragraph>
+
+              {option.key === 'custom' && isSelected && (
+                <TextInput
+                  style={{
+                    backgroundColor: '#050810',
+                    color: '#FFF',
+                    borderRadius: 8,
+                    padding: 10,
+                    fontSize: 14,
+                    borderWidth: 1,
+                    borderColor: '#00D4FF',
+                    marginTop: 10,
+                    marginLeft: 30,
+                    minHeight: 60,
+                  }}
+                  value={customHookText}
+                  onChangeText={setCustomHookText}
+                  placeholder="e.g. Start with a close-up zoom on the product, bold text saying 'WAIT FOR IT'"
+                  placeholderTextColor="#475569"
+                  multiline
+                />
               )}
             </TouchableOpacity>
-          ) : (
-            <View style={[styles.hookVideoContainer, {justifyContent: 'center', alignItems: 'center'}]}>
-              <Paragraph style={{color: '#64748B', fontSize: 13}}>Preview unavailable</Paragraph>
-            </View>
-          )}
+          );
+        })}
+      </ScrollView>
 
-          <Paragraph style={styles.hookDescription}>
-            {hook.description || 'AI-generated hook variation'}
+      <TouchableOpacity
+        onPress={handleChooseHook}
+        disabled={!selectedHookOption || (selectedHookOption === 'custom' && !customHookText.trim())}
+        style={{marginTop: 16, opacity: (!selectedHookOption || (selectedHookOption === 'custom' && !customHookText.trim())) ? 0.4 : 1}}
+      >
+        <LinearGradient
+          colors={['#00D4FF', '#00FFB3']}
+          start={{x: 0, y: 0}}
+          end={{x: 1, y: 0}}
+          style={{borderRadius: 14, paddingVertical: 14, alignItems: 'center'}}
+        >
+          <Paragraph style={{color: '#000', fontSize: 16, fontWeight: '800', letterSpacing: 1}}>
+            CONTINUE
           </Paragraph>
-
-          <TouchableOpacity onPress={() => handleChooseHook(index)}>
-            <LinearGradient
-              colors={index === 0 ? ['#00D4FF', '#00FFB3'] : ['#7C3AED', '#A855F7']}
-              style={styles.hookChooseBtn}
-            >
-              <Paragraph style={styles.hookChooseText}>
-                {index === 0 ? 'USE ORIGINAL' : 'USE THIS HOOK'}
-              </Paragraph>
-            </LinearGradient>
-          </TouchableOpacity>
-        </View>
-      ))}
+        </LinearGradient>
+      </TouchableOpacity>
 
       <TouchableOpacity
         onPress={() => { viralCancelledRef.current = true; setEditorState('editor'); }}
@@ -1837,17 +2285,11 @@ export default function VideoEditorScreen({navigation}: any) {
         </View>
       ) : null}
 
-      {/* Regenerate / Tweak buttons */}
-      <View style={styles.regenRow}>
-        <TouchableOpacity onPress={handleRegenerate} style={styles.regenBtn}>
-          <Paragraph style={styles.regenIcon}>{'↻'}</Paragraph>
-          <Paragraph style={styles.regenText}>Regenerate</Paragraph>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={() => setShowTweakInput(true)} style={styles.tweakBtn}>
-          <Paragraph style={styles.regenIcon}>{'✎'}</Paragraph>
-          <Paragraph style={styles.regenText}>Tweak</Paragraph>
-        </TouchableOpacity>
-      </View>
+      {/* Tweak button */}
+      <TouchableOpacity onPress={() => setShowTweakInput(true)} style={styles.tweakBtn}>
+        <Paragraph style={styles.regenIcon}>{'✎'}</Paragraph>
+        <Paragraph style={styles.regenText}>Tweak</Paragraph>
+      </TouchableOpacity>
 
       {/* Tweak feedback input */}
       {showTweakInput && (
@@ -2160,6 +2602,7 @@ export default function VideoEditorScreen({navigation}: any) {
           {/* AI Edit disabled for v1 launch */}
           {editorState === 'viral_processing' && renderViralProcessing()}
           {editorState === 'hook_selection' && renderHookSelection()}
+          {editorState === 'text_review' && renderTextReview()}
           {editorState === 'viral_preview' && renderViralPreview()}
         </Animated.View>
       </ScrollView>
@@ -2568,21 +3011,6 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   cancelText: {color: '#94A3B8', fontSize: 13},
-  copyStyleOption: {
-    backgroundColor: '#0C1220',
-    borderWidth: 1,
-    borderColor: '#1E293B',
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: 10,
-  },
-  copyStyleOptionActive: {
-    borderColor: '#7C3AED',
-    backgroundColor: '#1a1035',
-  },
-  copyStyleLabel: {color: '#CBD5E1', fontSize: 15, fontWeight: '700'},
-  copyStyleDesc: {color: '#94A3B8', fontSize: 12, marginTop: 2},
-  copyStyleWarn: {fontSize: 11, marginTop: 4, fontStyle: 'italic'},
 
   // AI Preview
   previewContainer: {paddingHorizontal: 16, paddingTop: 8},
@@ -2617,34 +3045,18 @@ const styles = StyleSheet.create({
   },
   acceptText: {color: '#050810', fontSize: 14, fontWeight: '700'},
 
-  // Regenerate / Tweak
-  regenRow: {
+  // Tweak
+  tweakBtn: {
     flexDirection: 'row',
-    gap: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#1E293B',
+    borderRadius: 10,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: '#334155',
     marginTop: 10,
     marginBottom: 4,
-  },
-  regenBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#1E293B',
-    borderRadius: 10,
-    paddingVertical: 10,
-    borderWidth: 1,
-    borderColor: '#334155',
-  },
-  tweakBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#1E293B',
-    borderRadius: 10,
-    paddingVertical: 10,
-    borderWidth: 1,
-    borderColor: '#334155',
   },
   regenIcon: {
     color: '#00D4FF',

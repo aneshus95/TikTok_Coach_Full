@@ -419,6 +419,17 @@ export const ApiService = {
     return response.data; // { filename, url, width, height, type }
   },
 
+  /** Upload audio file for audio-aware Make Viral */
+  async editorUploadAudio(audioUri: string, fileName: string) {
+    const formData = new FormData();
+    formData.append('audio', {uri: audioUri, type: 'audio/mpeg', name: fileName} as any);
+    const response = await api.post('/editor/upload-audio', formData, {
+      headers: {'Content-Type': 'multipart/form-data'},
+      timeout: 60000,
+    });
+    return response.data; // { filename, url, duration }
+  },
+
   // ──────────────────────────────────────────
   // MAKE VIRAL
   // ──────────────────────────────────────────
@@ -452,9 +463,17 @@ export const ApiService = {
     return res.data; // { task_id, state, video_url?, edit_summary?, captions?, hooks?, error_message? }
   },
 
-  /** Choose a hook variant and resume Make Viral pipeline */
-  async editorChooseHook(taskId: string, hookIndex: number) {
-    const res = await api.post('/editor/choose-hook', {task_id: taskId, hook_index: hookIndex}, {timeout: 30000});
+  /** Choose a hook preference and resume Make Viral pipeline */
+  async editorChooseHook(taskId: string, hookChoice: string, hookDescription?: string) {
+    const body: any = {task_id: taskId, hook_choice: hookChoice};
+    if (hookDescription) body.hook_description = hookDescription;
+    const res = await api.post('/editor/choose-hook', body, {timeout: 30000});
+    return res.data; // { task_id, state }
+  },
+
+  /** Submit text overlay decisions and resume Make Viral pipeline */
+  async editorTextDecisions(taskId: string, decisions: Array<{index: number; action: 'keep' | 'edit' | 'remove'; new_text?: string}>) {
+    const res = await api.post('/editor/text-decisions', {task_id: taskId, decisions}, {timeout: 30000});
     return res.data; // { task_id, state }
   },
 
