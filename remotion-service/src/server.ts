@@ -106,6 +106,53 @@ app.delete('/sources/:filename', requireAuth, (req, res) => {
   res.json({ok: true});
 });
 
+// Available Remotion APIs — backend fetches this to build AI prompts dynamically
+app.get('/apis', (_req, res) => {
+  // Dynamic import to get the merged RemotionAPI object keys
+  try {
+    const apiModule = require('./compositions/DynamicRenderer');
+    // DynamicRenderer doesn't export RemotionAPI directly, so we reconstruct from packages
+    const remotionCore = require('remotion');
+    const transitions = require('@remotion/transitions');
+    const shapes = require('@remotion/shapes');
+    const noise = require('@remotion/noise');
+    const motionBlur = require('@remotion/motion-blur');
+    const layoutUtils = require('@remotion/layout-utils');
+    const animationUtils = require('@remotion/animation-utils');
+    const paths = require('@remotion/paths');
+    const gif = require('@remotion/gif');
+    const lottie = require('@remotion/lottie');
+    const mediaUtils = require('@remotion/media-utils');
+    const preload = require('@remotion/preload');
+    const googleFonts = require('@remotion/google-fonts');
+
+    const packages: Record<string, string[]> = {
+      'remotion': Object.keys(remotionCore).filter(k => /^[a-zA-Z_$]/.test(k)),
+      '@remotion/transitions': [...Object.keys(transitions).filter(k => /^[a-zA-Z_$]/.test(k)), 'fade', 'slide', 'wipe', 'flip', 'clockWipe', 'none'],
+      '@remotion/shapes': Object.keys(shapes).filter(k => /^[a-zA-Z_$]/.test(k)),
+      '@remotion/noise': Object.keys(noise).filter(k => /^[a-zA-Z_$]/.test(k)),
+      '@remotion/motion-blur': Object.keys(motionBlur).filter(k => /^[a-zA-Z_$]/.test(k)),
+      '@remotion/layout-utils': Object.keys(layoutUtils).filter(k => /^[a-zA-Z_$]/.test(k)),
+      '@remotion/animation-utils': Object.keys(animationUtils).filter(k => /^[a-zA-Z_$]/.test(k)),
+      '@remotion/paths': Object.keys(paths).filter(k => /^[a-zA-Z_$]/.test(k)),
+      '@remotion/gif': Object.keys(gif).filter(k => /^[a-zA-Z_$]/.test(k)),
+      '@remotion/lottie': Object.keys(lottie).filter(k => /^[a-zA-Z_$]/.test(k)),
+      '@remotion/media-utils': Object.keys(mediaUtils).filter(k => /^[a-zA-Z_$]/.test(k)),
+      '@remotion/preload': Object.keys(preload).filter(k => /^[a-zA-Z_$]/.test(k)),
+      '@remotion/google-fonts': Object.keys(googleFonts).filter(k => /^[a-zA-Z_$]/.test(k)),
+    };
+
+    const remotionPkg = require('remotion/package.json');
+    res.json({
+      version: remotionPkg.version,
+      packages,
+    });
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    res.status(500).json({error: msg});
+  }
+});
+
 // Main render endpoint
 app.post('/render', requireAuth, async (req, res) => {
   const startTime = Date.now();
@@ -119,6 +166,7 @@ app.post('/render', requireAuth, async (req, res) => {
     code,
     sourceVideoUrl,
     sourceFiles,
+    audioUrl,
     width = 1080,
     height = 1920,
     fps = 30,
@@ -152,6 +200,7 @@ app.post('/render', requireAuth, async (req, res) => {
       transpiledCode,
       sourceVideo: primarySource,
       sourceFiles: hasSourceFiles ? sourceFiles : undefined,
+      audioUrl: audioUrl || undefined,
       width,
       height,
       fps,
