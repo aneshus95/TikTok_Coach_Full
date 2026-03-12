@@ -253,16 +253,10 @@ export default function VideoEditorScreen({navigation}: any) {
   const [showNichePicker, setShowNichePicker] = useState(false);
   const [selectedNiche, setSelectedNiche] = useState('');
   const [customNiche, setCustomNiche] = useState('');
-  const [selectedGoal, setSelectedGoal] = useState('');
   const [selectedAudience, setSelectedAudience] = useState('');
-  const [selectedVibe, setSelectedVibe] = useState('');
-  const [videoTopic, setVideoTopic] = useState('');
-  const [editIntensity, setEditIntensity] = useState('balanced');
-  const [colorGrade, setColorGrade] = useState('original');
-  const [captionStyle, setCaptionStyle] = useState('bold_white');
-  const [textOverlays, setTextOverlays] = useState(true);
+  const [editNudge, setEditNudge] = useState('');
   const [platform, setPlatform] = useState('tiktok');
-  const [audioMode, setAudioMode] = useState<'video_audio' | 'custom_audio'>('video_audio');
+  const [audioMode, setAudioMode] = useState<'video_audio' | 'custom_audio' | 'optimize_audio'>('video_audio');
   const [audioFile, setAudioFile] = useState<{uri: string; filename: string; serverFilename: string} | null>(null);
   const [audioUploading, setAudioUploading] = useState(false);
   const [viralTaskId, setViralTaskId] = useState<string | null>(null);
@@ -815,14 +809,8 @@ export default function VideoEditorScreen({navigation}: any) {
 
     try {
       const prefs: any = {
-        goal: selectedGoal,
         audience: selectedAudience,
-        vibe: selectedVibe,
-        topic: videoTopic,
-        intensity: editIntensity,
-        color_grade: colorGrade,
-        caption_style: captionStyle,
-        text_overlays: textOverlays,
+        topic: editNudge,
         platform: platform,
         audio_mode: audioMode,
       };
@@ -898,6 +886,7 @@ export default function VideoEditorScreen({navigation}: any) {
             'GENERATING_HOOKS': 'Preparing hook options...',
             'RESEARCHING': 'Researching edit techniques...',
             'RENDERING': 'Rendering viral edit...',
+            'OPTIMIZING_AUDIO': 'Enhancing audio...',
           };
           setViralStatus(statusMap[status.state] || 'Processing...');
         } catch (pollErr: any) {
@@ -1675,8 +1664,8 @@ export default function VideoEditorScreen({navigation}: any) {
   // ── Render: Niche Picker ──
   const canStartViral = () => {
     const hasNiche = selectedNiche === 'others' ? customNiche.trim().length > 0 : selectedNiche.length > 0;
-    const audioReady = audioMode === 'video_audio' || (audioMode === 'custom_audio' && !!audioFile);
-    return hasNiche && selectedGoal && selectedAudience && selectedVibe && audioReady;
+    const audioReady = audioMode === 'video_audio' || audioMode === 'optimize_audio' || (audioMode === 'custom_audio' && !!audioFile);
+    return hasNiche && selectedAudience && audioReady;
   };
 
   const startViral = () => {
@@ -1721,23 +1710,7 @@ export default function VideoEditorScreen({navigation}: any) {
           />
         )}
 
-        {/* 2. Goal */}
-        <Paragraph style={styles.sectionLabel}>WHAT'S YOUR GOAL?</Paragraph>
-        <View style={styles.nicheChipGrid}>
-          {GOALS.map(g => (
-            <TouchableOpacity
-              key={g.key}
-              onPress={() => setSelectedGoal(g.key)}
-              style={[styles.nicheChip, selectedGoal === g.key && styles.chipActive]}
-            >
-              <Paragraph style={[styles.nicheChipText, selectedGoal === g.key && styles.chipTextActive]}>
-                {g.icon} {g.label}
-              </Paragraph>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        {/* 3. Audience */}
+        {/* 2. Audience */}
         <Paragraph style={styles.sectionLabel}>TARGET AUDIENCE</Paragraph>
         <View style={styles.nicheChipGrid}>
           {AUDIENCES.map(a => (
@@ -1753,109 +1726,40 @@ export default function VideoEditorScreen({navigation}: any) {
           ))}
         </View>
 
-        {/* 4. Editing Vibe */}
-        <Paragraph style={styles.sectionLabel}>EDITING VIBE</Paragraph>
-        <View style={styles.nicheChipGrid}>
-          {EDIT_VIBES.map(v => (
-            <TouchableOpacity
-              key={v.key}
-              onPress={() => setSelectedVibe(v.key)}
-              style={[styles.nicheChip, selectedVibe === v.key && styles.chipActive]}
-            >
-              <Paragraph style={[styles.nicheChipText, selectedVibe === v.key && styles.chipTextActive]}>
-                {v.icon} {v.label}
-              </Paragraph>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        {/* 5. Platform */}
+        {/* 3. Platform */}
         <Paragraph style={styles.sectionLabel}>PLATFORM</Paragraph>
         <View style={styles.nicheChipGrid}>
           {PLATFORMS.map(p => (
             <TouchableOpacity
               key={p.key}
-              onPress={() => setPlatform(p.key)}
-              style={[styles.nicheChip, platform === p.key && styles.chipActive]}
+              onPress={p.key === 'tiktok' ? () => setPlatform(p.key) : undefined}
+              activeOpacity={p.key === 'tiktok' ? 0.7 : 1}
+              style={[
+                styles.nicheChip,
+                platform === p.key && styles.chipActive,
+                p.key !== 'tiktok' && {opacity: 0.35},
+              ]}
             >
-              <Paragraph style={[styles.nicheChipText, platform === p.key && styles.chipTextActive]}>
-                {p.icon} {p.label}
+              <Paragraph style={[
+                styles.nicheChipText,
+                platform === p.key && styles.chipTextActive,
+                p.key !== 'tiktok' && {color: '#475569'},
+              ]}>
+                {p.icon} {p.label}{p.key !== 'tiktok' ? ' (soon)' : ''}
               </Paragraph>
             </TouchableOpacity>
           ))}
         </View>
 
-        {/* 6. Edit Intensity */}
-        <Paragraph style={styles.sectionLabel}>EDIT INTENSITY</Paragraph>
-        <View style={styles.nicheChipGrid}>
-          {EDIT_INTENSITIES.map(i => (
-            <TouchableOpacity
-              key={i.key}
-              onPress={() => setEditIntensity(i.key)}
-              style={[styles.nicheChip, editIntensity === i.key && styles.chipActive]}
-            >
-              <Paragraph style={[styles.nicheChipText, editIntensity === i.key && styles.chipTextActive]}>
-                {i.icon} {i.label}
-              </Paragraph>
-            </TouchableOpacity>
-          ))}
-        </View>
-        <Paragraph style={styles.intensityDesc}>
-          {EDIT_INTENSITIES.find(i => i.key === editIntensity)?.desc}
-        </Paragraph>
-
-        {/* 7. Color Grade */}
-        <Paragraph style={styles.sectionLabel}>COLOR GRADE</Paragraph>
-        <View style={styles.nicheChipGrid}>
-          {COLOR_GRADES.map(c => (
-            <TouchableOpacity
-              key={c.key}
-              onPress={() => setColorGrade(c.key)}
-              style={[styles.nicheChip, colorGrade === c.key && styles.chipActive]}
-            >
-              <Paragraph style={[styles.nicheChipText, colorGrade === c.key && styles.chipTextActive]}>
-                {c.label}
-              </Paragraph>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        {/* 8. Caption Style */}
-        <Paragraph style={styles.sectionLabel}>CAPTION STYLE</Paragraph>
-        <View style={styles.nicheChipGrid}>
-          {CAPTION_STYLES.map(cs => (
-            <TouchableOpacity
-              key={cs.key}
-              onPress={() => setCaptionStyle(cs.key)}
-              style={[styles.nicheChip, captionStyle === cs.key && styles.chipActive]}
-            >
-              <Paragraph style={[styles.nicheChipText, captionStyle === cs.key && styles.chipTextActive]}>
-                {cs.label}
-              </Paragraph>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        {/* 9. Text Overlays Toggle */}
-        <View style={styles.toggleRow}>
-          <Paragraph style={styles.toggleLabel}>TEXT OVERLAYS</Paragraph>
-          <TouchableOpacity
-            onPress={() => setTextOverlays(!textOverlays)}
-            style={[styles.toggleBtn, textOverlays && styles.toggleBtnActive]}
-          >
-            <Paragraph style={styles.toggleBtnText}>{textOverlays ? 'ON' : 'OFF'}</Paragraph>
-          </TouchableOpacity>
-        </View>
-
-        {/* 10. Topic (optional) */}
-        <Paragraph style={styles.sectionLabel}>WHAT'S THE VIDEO ABOUT? (optional)</Paragraph>
+        {/* 4. Edit Nudge (optional) */}
+        <Paragraph style={styles.sectionLabel}>HOW DO YOU WANNA NUDGE THE EDIT? (optional)</Paragraph>
         <TextInput
           style={[styles.customNicheInput, {marginBottom: 20}]}
-          placeholder="e.g. morning workout routine, cooking pasta..."
+          placeholder="e.g. fast cuts, cinematic feel, text-heavy, raw & authentic..."
           placeholderTextColor="#64748B"
-          value={videoTopic}
-          onChangeText={setVideoTopic}
-          maxLength={100}
+          value={editNudge}
+          onChangeText={setEditNudge}
+          maxLength={150}
         />
 
         {/* 11. Audio Mode */}
@@ -1874,7 +1778,15 @@ export default function VideoEditorScreen({navigation}: any) {
             style={[styles.nicheChip, audioMode === 'custom_audio' && styles.chipActive]}
           >
             <Paragraph style={[styles.nicheChipText, audioMode === 'custom_audio' && styles.chipTextActive]}>
-              I have an audio track
+              Custom audio
+            </Paragraph>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => { setAudioMode('optimize_audio'); setAudioFile(null); }}
+            style={[styles.nicheChip, audioMode === 'optimize_audio' && styles.chipActive]}
+          >
+            <Paragraph style={[styles.nicheChipText, audioMode === 'optimize_audio' && styles.chipTextActive]}>
+              Optimize audio
             </Paragraph>
           </TouchableOpacity>
         </View>
@@ -2095,7 +2007,7 @@ export default function VideoEditorScreen({navigation}: any) {
                       borderColor: '#00D4FF',
                       marginBottom: 10,
                     }}
-                    value={decision.new_text || overlay.text}
+                    value={decision.new_text !== undefined ? decision.new_text : overlay.text}
                     onChangeText={(text) => setTextDecisions(prev => ({
                       ...prev,
                       [overlay.index]: {action: 'edit', new_text: text},
