@@ -83,7 +83,7 @@ type CaptionTimingMode = 'word' | 'phrase' | 'sentence' | 'single-pop';
 type CaptionFontStyle = 'bold-sans' | 'outlined' | 'neon' | 'classic' | 'minimal' | 'impact';
 type CaptionAnimation = 'none' | 'fade' | 'pop' | 'slide-up' | 'typewriter' | 'karaoke';
 type ActiveTool = 'none' | 'captions' | 'speed' | 'filters';
-type EditorState = 'select' | 'editor' | 'ai_processing' | 'ai_preview' | 'viral_processing' | 'viral_preview' | 'hook_selection' | 'text_review';
+type EditorState = 'select' | 'editor' | 'ai_processing' | 'ai_preview' | 'viral_processing' | 'viral_preview' | 'hook_selection' | 'text_review' | 'creative_input' | 'questions';
 
 const TIMING_MODES: {key: CaptionTimingMode; label: string; desc: string}[] = [
   {key: 'word', label: 'Word by Word', desc: 'Each word highlights as spoken'},
@@ -256,6 +256,7 @@ export default function VideoEditorScreen({navigation}: any) {
   const [selectedAudience, setSelectedAudience] = useState('');
   const [editNudge, setEditNudge] = useState('');
   const [platform, setPlatform] = useState('tiktok');
+  const [targetDuration, setTargetDuration] = useState('');
   const [audioMode, setAudioMode] = useState<'video_audio' | 'custom_audio' | 'optimize_audio'>('video_audio');
   const [audioFile, setAudioFile] = useState<{uri: string; filename: string; serverFilename: string} | null>(null);
   const [audioUploading, setAudioUploading] = useState(false);
@@ -268,6 +269,19 @@ export default function VideoEditorScreen({navigation}: any) {
   const [selectedHookOption, setSelectedHookOption] = useState<string>('');
   const [customHookText, setCustomHookText] = useState('');
   const [hookVideoUrl, setHookVideoUrl] = useState<string | null>(null);
+
+  // ── Creative Input ──
+  const [recommendations, setRecommendations] = useState<any>(null);
+  const [selectedHookIdx, setSelectedHookIdx] = useState(0);
+  const [selectedAudioIdx, setSelectedAudioIdx] = useState(0);
+  const [customAudioForCreative, setCustomAudioForCreative] = useState<{uri: string; filename: string; serverFilename: string} | null>(null);
+  const [selectedVibe, setSelectedVibe] = useState('');
+  const [customVibe, setCustomVibe] = useState('');
+  const [storyArc, setStoryArc] = useState('');
+  const [selectedCta, setSelectedCta] = useState('');
+  const [customCta, setCustomCta] = useState('');
+  const [geminiQuestions, setGeminiQuestions] = useState<string[]>([]);
+  const [questionAnswers, setQuestionAnswers] = useState<string[]>([]);
 
   // ── Text Review ──
   const [reviewTextOverlays, setReviewTextOverlays] = useState<Array<{index: number; time: number; duration: number; text: string; position: string; params: any}>>([]);
@@ -809,14 +823,9 @@ export default function VideoEditorScreen({navigation}: any) {
 
     try {
       const prefs: any = {
-        audience: selectedAudience,
-        topic: editNudge,
-        platform: platform,
-        audio_mode: audioMode,
+        ...(targetDuration ? {target_duration: parseInt(targetDuration, 10)} : {}),
+        ...(storyArc.trim() ? {story_arc: storyArc.trim()} : {}),
       };
-      if (audioMode === 'custom_audio' && audioFile?.serverFilename) {
-        prefs.audio_filename = audioFile.serverFilename;
-      }
 
       // Multi-file: send files array; single-file: send video_filename
       const isMultiFile = uploadedFiles.length > 1;
@@ -838,6 +847,25 @@ export default function VideoEditorScreen({navigation}: any) {
 
         try {
           const status = await ApiService.editorPollViral(data.task_id);
+
+          if (status.state === 'CREATIVE_INPUT') {
+            if (viralCancelledRef.current) return;
+            setRecommendations(status.recommendations || {});
+            // Pre-fill defaults
+            setSelectedHookIdx(0);
+            setSelectedAudioIdx(0);
+            setSelectedVibe(status.recommendations?.vibe_suggestions?.[0]?.label || '');
+            setStoryArc(status.recommendations?.story_suggestion || '');
+            setSelectedCta(status.recommendations?.cta_suggestions?.[0]?.label || '');
+            setCustomCta('');
+            setCustomVibe('');
+            // Handle questions
+            const qs = status.recommendations?.questions || [];
+            setGeminiQuestions(qs);
+            setQuestionAnswers(qs.map(() => ''));
+            setEditorState('creative_input');
+            return;
+          }
 
           if (status.state === 'HOOKS_READY') {
             if (viralCancelledRef.current) return;
@@ -883,6 +911,7 @@ export default function VideoEditorScreen({navigation}: any) {
             'TRANSCRIBING': fileCount > 1 ? `Analyzing ${fileCount} files...` : 'Transcribing audio...',
             'SEARCHING': 'Searching trending styles...',
             'ANALYZING': fileCount > 1 ? `Planning multi-file edit...` : 'Analyzing your video...',
+            'CREATIVE_INPUT': 'Analyzing your footage...',
             'GENERATING_HOOKS': 'Preparing hook options...',
             'RESEARCHING': 'Researching edit techniques...',
             'RENDERING': 'Rendering viral edit...',
@@ -1664,8 +1693,7 @@ export default function VideoEditorScreen({navigation}: any) {
   // ── Render: Niche Picker ──
   const canStartViral = () => {
     const hasNiche = selectedNiche === 'others' ? customNiche.trim().length > 0 : selectedNiche.length > 0;
-    const audioReady = audioMode === 'video_audio' || audioMode === 'optimize_audio' || (audioMode === 'custom_audio' && !!audioFile);
-    return hasNiche && selectedAudience && audioReady;
+    return hasNiche;
   };
 
   const startViral = () => {
@@ -1710,108 +1738,41 @@ export default function VideoEditorScreen({navigation}: any) {
           />
         )}
 
-        {/* 2. Audience */}
-        <Paragraph style={styles.sectionLabel}>TARGET AUDIENCE</Paragraph>
-        <View style={styles.nicheChipGrid}>
-          {AUDIENCES.map(a => (
-            <TouchableOpacity
-              key={a.key}
-              onPress={() => setSelectedAudience(a.key)}
-              style={[styles.nicheChip, selectedAudience === a.key && styles.chipActive]}
-            >
-              <Paragraph style={[styles.nicheChipText, selectedAudience === a.key && styles.chipTextActive]}>
-                {a.label}
-              </Paragraph>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        {/* 3. Platform */}
-        <Paragraph style={styles.sectionLabel}>PLATFORM</Paragraph>
-        <View style={styles.nicheChipGrid}>
-          {PLATFORMS.map(p => (
-            <TouchableOpacity
-              key={p.key}
-              onPress={p.key === 'tiktok' ? () => setPlatform(p.key) : undefined}
-              activeOpacity={p.key === 'tiktok' ? 0.7 : 1}
-              style={[
-                styles.nicheChip,
-                platform === p.key && styles.chipActive,
-                p.key !== 'tiktok' && {opacity: 0.35},
-              ]}
-            >
-              <Paragraph style={[
-                styles.nicheChipText,
-                platform === p.key && styles.chipTextActive,
-                p.key !== 'tiktok' && {color: '#475569'},
-              ]}>
-                {p.icon} {p.label}{p.key !== 'tiktok' ? ' (soon)' : ''}
-              </Paragraph>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        {/* 4. Edit Nudge (optional) */}
-        <Paragraph style={styles.sectionLabel}>HOW DO YOU WANNA NUDGE THE EDIT? (optional)</Paragraph>
+        {/* 2. Edit Duration */}
+        <Paragraph style={styles.sectionLabel}>EDIT DURATION (seconds)</Paragraph>
         <TextInput
-          style={[styles.customNicheInput, {marginBottom: 20}]}
-          placeholder="e.g. fast cuts, cinematic feel, text-heavy, raw & authentic..."
+          style={[styles.customNicheInput, {marginBottom: 4}]}
+          placeholder="e.g. 30, 60, 120 (max 300)"
           placeholderTextColor="#64748B"
-          value={editNudge}
-          onChangeText={setEditNudge}
-          maxLength={150}
+          value={targetDuration}
+          onChangeText={(text) => {
+            const nums = text.replace(/[^0-9]/g, '');
+            const val = parseInt(nums, 10);
+            if (nums === '') { setTargetDuration(''); return; }
+            if (val > 300) { setTargetDuration('300'); return; }
+            setTargetDuration(nums);
+          }}
+          keyboardType="number-pad"
+          maxLength={3}
         />
+        <Paragraph style={{color: '#64748B', fontSize: 11, marginBottom: 16}}>
+          {targetDuration ? `${targetDuration}s edit` : 'Leave empty to let AI decide'}
+        </Paragraph>
 
-        {/* 11. Audio Mode */}
-        <Paragraph style={styles.sectionLabel}>AUDIO</Paragraph>
-        <View style={styles.chipRow}>
-          <TouchableOpacity
-            onPress={() => { setAudioMode('video_audio'); setAudioFile(null); }}
-            style={[styles.nicheChip, audioMode === 'video_audio' && styles.chipActive]}
-          >
-            <Paragraph style={[styles.nicheChipText, audioMode === 'video_audio' && styles.chipTextActive]}>
-              Use video's audio
-            </Paragraph>
-          </TouchableOpacity>
-          <TouchableOpacity
-            onPress={() => setAudioMode('custom_audio')}
-            style={[styles.nicheChip, audioMode === 'custom_audio' && styles.chipActive]}
-          >
-            <Paragraph style={[styles.nicheChipText, audioMode === 'custom_audio' && styles.chipTextActive]}>
-              Custom audio
-            </Paragraph>
-          </TouchableOpacity>
-          <TouchableOpacity
-            onPress={() => { setAudioMode('optimize_audio'); setAudioFile(null); }}
-            style={[styles.nicheChip, audioMode === 'optimize_audio' && styles.chipActive]}
-          >
-            <Paragraph style={[styles.nicheChipText, audioMode === 'optimize_audio' && styles.chipTextActive]}>
-              Optimize audio
-            </Paragraph>
-          </TouchableOpacity>
-        </View>
-        {audioMode === 'custom_audio' && (
-          <View style={{marginBottom: 16}}>
-            {audioFile ? (
-              <View style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#0C1220', borderRadius: 10, padding: 12, borderWidth: 1, borderColor: '#1E293B'}}>
-                <Paragraph style={{color: '#00FFB3', flex: 1, fontSize: 13}} numberOfLines={1}>{audioFile.filename}</Paragraph>
-                <TouchableOpacity onPress={() => { setAudioFile(null); }} style={{marginLeft: 8}}>
-                  <Paragraph style={{color: '#FF4444', fontSize: 13}}>Remove</Paragraph>
-                </TouchableOpacity>
-              </View>
-            ) : (
-              <TouchableOpacity
-                onPress={pickAudioFile}
-                disabled={audioUploading}
-                style={{backgroundColor: '#0C1220', borderRadius: 10, padding: 14, borderWidth: 1, borderColor: '#1E293B', alignItems: 'center'}}
-              >
-                <Paragraph style={{color: audioUploading ? '#64748B' : '#00D4FF', fontSize: 14, fontWeight: '600'}}>
-                  {audioUploading ? 'Uploading...' : 'Select Audio File'}
-                </Paragraph>
-              </TouchableOpacity>
-            )}
-          </View>
-        )}
+        {/* 3. Story Arc */}
+        <Paragraph style={styles.sectionLabel}>STORY ARC (optional)</Paragraph>
+        <TextInput
+          style={[styles.customNicheInput, {minHeight: 60, textAlignVertical: 'top', marginBottom: 4}]}
+          placeholder="e.g. Hook with before shot → show process → dramatic reveal → CTA"
+          placeholderTextColor="#64748B"
+          value={storyArc}
+          onChangeText={setStoryArc}
+          multiline
+          maxLength={300}
+        />
+        <Paragraph style={{color: '#64748B', fontSize: 11, marginBottom: 16}}>
+          {storyArc ? 'AI will shape all suggestions around your story' : 'Leave empty to let AI suggest a story'}
+        </Paragraph>
 
         {/* Start Button */}
         <TouchableOpacity
@@ -1886,6 +1847,412 @@ export default function VideoEditorScreen({navigation}: any) {
       </View>
     </View>
   );
+
+  // ── Creative Input Submit ──
+  const handleCreativeInputSubmit = async () => {
+    if (!viralTaskId) return;
+    try {
+      setEditorState('viral_processing');
+      setViralStatus('Planning your edit...');
+
+      const hooks = recommendations?.hooks || [];
+      const audios = recommendations?.audio_suggestions || [];
+      const hookChoice = hooks[selectedHookIdx] || {label: 'AI decides'};
+      const audioChoice = customAudioForCreative
+        ? {type: 'custom', label: customAudioForCreative.filename, filename: customAudioForCreative.serverFilename}
+        : selectedAudioIdx === 0
+          ? {type: 'original', label: audios[0]?.label || 'Keep original'}
+          : {type: 'suggested', label: audios[selectedAudioIdx]?.label || ''};
+
+      const creativeInput = {
+        hook: hookChoice,
+        audio: audioChoice,
+        vibe: customVibe || selectedVibe,
+        story: storyArc,
+        cta: customCta || selectedCta,
+      };
+
+      const answers = geminiQuestions.length > 0
+        ? geminiQuestions.map((q, i) => ({question: q, answer: questionAnswers[i] || ''}))
+        : undefined;
+
+      await ApiService.editorCreativeInput(viralTaskId, creativeInput, answers);
+
+      // Resume polling
+      const maxWait = 60 * 60 * 1000;
+      const start = Date.now();
+      while (Date.now() - start < maxWait) {
+        if (viralCancelledRef.current) return;
+        await new Promise(r => setTimeout(r, 5000));
+        if (viralCancelledRef.current) return;
+        try {
+          const status = await ApiService.editorPollViral(viralTaskId);
+          if (status.state === 'TEXT_REVIEW') {
+            const overlays = status.text_overlays || [];
+            setReviewTextOverlays(overlays);
+            setTextReviewVideoUrl(status.video_url || null);
+            setTextReviewDuration(status.duration || 0);
+            const defaults: Record<number, {action: 'keep' | 'edit' | 'remove'}> = {};
+            overlays.forEach((t: any) => { defaults[t.index] = {action: 'keep'}; });
+            setTextDecisions(defaults);
+            setEditorState('text_review');
+            return;
+          }
+          if (status.state === 'SUCCEEDED') {
+            setViralPreviewUrl(status.video_url);
+            setViralEditSummary(status.edit_summary || '');
+            if (Array.isArray(status.captions) && status.captions.length > 0) {
+              setCaptionWords(status.captions);
+              setCaptionEnabled(true);
+            }
+            setEditorState('viral_preview');
+            return;
+          }
+          if (status.state === 'FAILED') {
+            throw new Error(status.error_message || 'Failed');
+          }
+          const statusMap: Record<string, string> = {
+            'ANALYZING': 'Planning your edit...',
+            'RESEARCHING': 'Researching techniques...',
+            'RENDERING': 'Rendering viral edit...',
+            'OPTIMIZING_AUDIO': 'Enhancing audio...',
+          };
+          setViralStatus(statusMap[status.state] || 'Processing...');
+        } catch (pollErr: any) {
+          if (pollErr.message?.includes('failed') || pollErr.message?.includes('Failed')) throw pollErr;
+        }
+      }
+    } catch (err: any) {
+      Alert.alert('Error', err.message || 'Creative input failed');
+      setEditorState('editor');
+    }
+  };
+
+  // ── Render: Creative Input ──
+  const pickAudioForCreative = async () => {
+    try {
+      const result = await DocumentPicker.pick({type: [DocumentPicker.types.audio]});
+      if (!result || result.length === 0) return;
+      const file = result[0];
+      if (!file?.uri) return;
+      const data = await ApiService.editorUploadAudio(file.uri, file.name || 'audio.mp3');
+      setCustomAudioForCreative({uri: file.uri, filename: file.name || 'audio.mp3', serverFilename: data.filename});
+      setSelectedAudioIdx(-1);
+    } catch (err: any) {
+      if (!DocumentPicker.isCancel(err)) {
+        Alert.alert('Error', 'Could not pick audio file');
+      }
+    }
+  };
+
+  const renderCreativeInput = () => {
+    const hooks = recommendations?.hooks || [];
+    const audios = recommendations?.audio_suggestions || [];
+    const vibes = recommendations?.vibe_suggestions || [];
+    const ctas = recommendations?.cta_suggestions || [];
+    const summary = recommendations?.footage_summary || '';
+
+    return (
+      <View style={{flex: 1, paddingHorizontal: 16}}>
+        <Title style={{color: '#FFF', fontSize: 22, fontWeight: '800', textAlign: 'center', marginTop: 16, marginBottom: 4}}>
+          Creative Direction
+        </Title>
+        <Paragraph style={{color: '#94A3B8', fontSize: 13, textAlign: 'center', marginBottom: 16}}>
+          We analyzed your footage. Now shape the edit.
+        </Paragraph>
+
+        {/* Footage Summary */}
+        {summary ? (
+          <View style={{backgroundColor: '#0C1220', borderRadius: 12, padding: 14, borderWidth: 1, borderColor: '#1E293B', marginBottom: 16}}>
+            <Paragraph style={{color: '#94A3B8', fontSize: 11, fontWeight: '700', marginBottom: 6}}>FOOTAGE SUMMARY</Paragraph>
+            <Paragraph style={{color: '#CBD5E1', fontSize: 13, lineHeight: 20}}>{summary}</Paragraph>
+          </View>
+        ) : null}
+
+        {/* HOOK Section */}
+        {hooks.length > 0 && (
+          <View style={{marginBottom: 16}}>
+            <Paragraph style={{color: '#94A3B8', fontSize: 11, fontWeight: '700', marginBottom: 8}}>HOOK</Paragraph>
+            {hooks.map((hook: any, idx: number) => {
+              const isSelected = selectedHookIdx === idx;
+              return (
+                <TouchableOpacity
+                  key={idx}
+                  onPress={() => setSelectedHookIdx(idx)}
+                  activeOpacity={0.8}
+                  style={{
+                    backgroundColor: isSelected ? '#0C1830' : '#0C1220',
+                    borderRadius: 12,
+                    padding: 14,
+                    marginBottom: 8,
+                    borderWidth: 2,
+                    borderColor: isSelected ? '#00D4FF' : '#1E293B',
+                  }}
+                >
+                  <View style={{flexDirection: 'row', alignItems: 'center'}}>
+                    <View style={{
+                      width: 20, height: 20, borderRadius: 10,
+                      borderWidth: 2, borderColor: isSelected ? '#00D4FF' : '#64748B',
+                      backgroundColor: isSelected ? '#00D4FF' : 'transparent',
+                      marginRight: 10,
+                      justifyContent: 'center', alignItems: 'center',
+                    }}>
+                      {isSelected && <View style={{width: 8, height: 8, borderRadius: 4, backgroundColor: '#000'}} />}
+                    </View>
+                    <View style={{flex: 1}}>
+                      <Paragraph style={{color: '#FFF', fontSize: 14, fontWeight: '700'}}>{hook.label}</Paragraph>
+                      {hook.description ? (
+                        <Paragraph style={{color: '#94A3B8', fontSize: 12, marginTop: 2}}>{hook.description}</Paragraph>
+                      ) : null}
+                    </View>
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        )}
+
+        {/* AUDIO Section */}
+        <View style={{marginBottom: 16}}>
+          <Paragraph style={{color: '#94A3B8', fontSize: 11, fontWeight: '700', marginBottom: 8}}>AUDIO</Paragraph>
+          {/* Keep original - always first */}
+          <TouchableOpacity
+            onPress={() => { setSelectedAudioIdx(0); setCustomAudioForCreative(null); }}
+            activeOpacity={0.8}
+            style={{
+              backgroundColor: selectedAudioIdx === 0 && !customAudioForCreative ? '#0C1830' : '#0C1220',
+              borderRadius: 12,
+              padding: 14,
+              marginBottom: 8,
+              borderWidth: 2,
+              borderColor: selectedAudioIdx === 0 && !customAudioForCreative ? '#00D4FF' : '#1E293B',
+            }}
+          >
+            <View style={{flexDirection: 'row', alignItems: 'center'}}>
+              <View style={{
+                width: 20, height: 20, borderRadius: 10,
+                borderWidth: 2, borderColor: selectedAudioIdx === 0 && !customAudioForCreative ? '#00D4FF' : '#64748B',
+                backgroundColor: selectedAudioIdx === 0 && !customAudioForCreative ? '#00D4FF' : 'transparent',
+                marginRight: 10,
+                justifyContent: 'center', alignItems: 'center',
+              }}>
+                {selectedAudioIdx === 0 && !customAudioForCreative && <View style={{width: 8, height: 8, borderRadius: 4, backgroundColor: '#000'}} />}
+              </View>
+              <Paragraph style={{color: '#FFF', fontSize: 14, fontWeight: '700'}}>Keep original audio</Paragraph>
+            </View>
+          </TouchableOpacity>
+
+          {/* Audio suggestions */}
+          {audios.slice(1).map((audio: any, idx: number) => {
+            const audioIdx = idx + 1;
+            const isSelected = selectedAudioIdx === audioIdx && !customAudioForCreative;
+            return (
+              <TouchableOpacity
+                key={audioIdx}
+                onPress={() => { setSelectedAudioIdx(audioIdx); setCustomAudioForCreative(null); }}
+                activeOpacity={0.8}
+                style={{
+                  backgroundColor: isSelected ? '#0C1830' : '#0C1220',
+                  borderRadius: 12,
+                  padding: 14,
+                  marginBottom: 8,
+                  borderWidth: 2,
+                  borderColor: isSelected ? '#00D4FF' : '#1E293B',
+                }}
+              >
+                <View style={{flexDirection: 'row', alignItems: 'center'}}>
+                  <View style={{
+                    width: 20, height: 20, borderRadius: 10,
+                    borderWidth: 2, borderColor: isSelected ? '#00D4FF' : '#64748B',
+                    backgroundColor: isSelected ? '#00D4FF' : 'transparent',
+                    marginRight: 10,
+                    justifyContent: 'center', alignItems: 'center',
+                  }}>
+                    {isSelected && <View style={{width: 8, height: 8, borderRadius: 4, backgroundColor: '#000'}} />}
+                  </View>
+                  <Paragraph style={{color: '#FFF', fontSize: 14, fontWeight: '700'}}>{audio.label}</Paragraph>
+                </View>
+              </TouchableOpacity>
+            );
+          })}
+
+          {/* Upload custom audio */}
+          <TouchableOpacity
+            onPress={pickAudioForCreative}
+            activeOpacity={0.8}
+            style={{
+              backgroundColor: customAudioForCreative ? '#0C1830' : '#0C1220',
+              borderRadius: 12,
+              padding: 14,
+              marginBottom: 8,
+              borderWidth: 2,
+              borderColor: customAudioForCreative ? '#00D4FF' : '#1E293B',
+            }}
+          >
+            <View style={{flexDirection: 'row', alignItems: 'center'}}>
+              <View style={{
+                width: 20, height: 20, borderRadius: 10,
+                borderWidth: 2, borderColor: customAudioForCreative ? '#00D4FF' : '#64748B',
+                backgroundColor: customAudioForCreative ? '#00D4FF' : 'transparent',
+                marginRight: 10,
+                justifyContent: 'center', alignItems: 'center',
+              }}>
+                {customAudioForCreative && <View style={{width: 8, height: 8, borderRadius: 4, backgroundColor: '#000'}} />}
+              </View>
+              <Paragraph style={{color: '#FFF', fontSize: 14, fontWeight: '700'}}>
+                {customAudioForCreative ? customAudioForCreative.filename : 'Upload custom audio'}
+              </Paragraph>
+            </View>
+          </TouchableOpacity>
+        </View>
+
+        {/* VIBE Section */}
+        {vibes.length > 0 && (
+          <View style={{marginBottom: 16}}>
+            <Paragraph style={{color: '#94A3B8', fontSize: 11, fontWeight: '700', marginBottom: 8}}>VIBE</Paragraph>
+            <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8}}>
+              {vibes.map((v: any, idx: number) => {
+                const isSelected = selectedVibe === v.label && !customVibe;
+                return (
+                  <TouchableOpacity
+                    key={idx}
+                    onPress={() => { setSelectedVibe(v.label); setCustomVibe(''); }}
+                    style={{
+                      paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20,
+                      borderWidth: 1.5,
+                      borderColor: isSelected ? '#00D4FF' : '#1E293B',
+                      backgroundColor: isSelected ? 'rgba(0,212,255,0.12)' : 'transparent',
+                    }}
+                  >
+                    <Paragraph style={{color: isSelected ? '#00D4FF' : '#CBD5E1', fontSize: 13, fontWeight: '600'}}>{v.label}</Paragraph>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            <TextInput
+              style={{
+                backgroundColor: '#0C1220', borderRadius: 10, padding: 12,
+                borderWidth: 1, borderColor: customVibe ? '#00D4FF' : '#1E293B',
+                color: '#E2E8F0', fontSize: 14,
+              }}
+              placeholder="Or type your own vibe..."
+              placeholderTextColor="#64748B"
+              value={customVibe}
+              onChangeText={(text) => { setCustomVibe(text); if (text) setSelectedVibe(''); }}
+              maxLength={80}
+            />
+          </View>
+        )}
+
+        {/* STORY ARC Section */}
+        <View style={{marginBottom: 16}}>
+          <Paragraph style={{color: '#94A3B8', fontSize: 11, fontWeight: '700', marginBottom: 8}}>STORY ARC</Paragraph>
+          <TextInput
+            style={{
+              backgroundColor: '#0C1220', borderRadius: 10, padding: 12,
+              borderWidth: 1, borderColor: '#1E293B',
+              color: '#E2E8F0', fontSize: 14, minHeight: 60, textAlignVertical: 'top',
+            }}
+            placeholder="How should the story flow?"
+            placeholderTextColor="#64748B"
+            value={storyArc}
+            onChangeText={setStoryArc}
+            multiline
+            maxLength={300}
+          />
+        </View>
+
+        {/* CTA Section */}
+        {ctas.length > 0 && (
+          <View style={{marginBottom: 16}}>
+            <Paragraph style={{color: '#94A3B8', fontSize: 11, fontWeight: '700', marginBottom: 8}}>CALL TO ACTION</Paragraph>
+            <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8}}>
+              {ctas.map((c: any, idx: number) => {
+                const isSelected = selectedCta === c.label && !customCta;
+                return (
+                  <TouchableOpacity
+                    key={idx}
+                    onPress={() => { setSelectedCta(c.label); setCustomCta(''); }}
+                    style={{
+                      paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20,
+                      borderWidth: 1.5,
+                      borderColor: isSelected ? '#00D4FF' : '#1E293B',
+                      backgroundColor: isSelected ? 'rgba(0,212,255,0.12)' : 'transparent',
+                    }}
+                  >
+                    <Paragraph style={{color: isSelected ? '#00D4FF' : '#CBD5E1', fontSize: 13, fontWeight: '600'}}>{c.label}</Paragraph>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            <TextInput
+              style={{
+                backgroundColor: '#0C1220', borderRadius: 10, padding: 12,
+                borderWidth: 1, borderColor: customCta ? '#00D4FF' : '#1E293B',
+                color: '#E2E8F0', fontSize: 14,
+              }}
+              placeholder="Or type your own CTA..."
+              placeholderTextColor="#64748B"
+              value={customCta}
+              onChangeText={(text) => { setCustomCta(text); if (text) setSelectedCta(''); }}
+              maxLength={100}
+            />
+          </View>
+        )}
+
+        {/* QUESTIONS Section */}
+        {geminiQuestions.length > 0 && (
+          <View style={{marginBottom: 16}}>
+            <Paragraph style={{color: '#94A3B8', fontSize: 11, fontWeight: '700', marginBottom: 8}}>QUESTIONS</Paragraph>
+            <Paragraph style={{color: '#64748B', fontSize: 12, marginBottom: 10}}>Help AI understand your vision better</Paragraph>
+            {geminiQuestions.map((q, idx) => (
+              <View key={idx} style={{marginBottom: 12}}>
+                <Paragraph style={{color: '#E2E8F0', fontSize: 13, fontWeight: '600', marginBottom: 6}}>{q}</Paragraph>
+                <TextInput
+                  style={{
+                    backgroundColor: '#0C1220', borderRadius: 10, padding: 12,
+                    borderWidth: 1, borderColor: questionAnswers[idx] ? '#00D4FF' : '#1E293B',
+                    color: '#E2E8F0', fontSize: 14,
+                  }}
+                  placeholder="Your answer..."
+                  placeholderTextColor="#64748B"
+                  value={questionAnswers[idx] || ''}
+                  onChangeText={(text) => {
+                    const updated = [...questionAnswers];
+                    updated[idx] = text;
+                    setQuestionAnswers(updated);
+                  }}
+                  maxLength={200}
+                />
+              </View>
+            ))}
+          </View>
+        )}
+
+        {/* Submit Button */}
+        <TouchableOpacity onPress={handleCreativeInputSubmit} style={{marginTop: 8, marginBottom: 24}}>
+          <LinearGradient
+            colors={['#FF6B00', '#FF2D87']}
+            start={{x: 0, y: 0}}
+            end={{x: 1, y: 0}}
+            style={{borderRadius: 14, paddingVertical: 14, alignItems: 'center'}}
+          >
+            <Paragraph style={{color: '#FFF', fontSize: 16, fontWeight: '800', letterSpacing: 1}}>
+              LET'S EDIT
+            </Paragraph>
+          </LinearGradient>
+        </TouchableOpacity>
+
+        {/* Cancel */}
+        <TouchableOpacity
+          onPress={() => { viralCancelledRef.current = true; setEditorState('editor'); }}
+          style={{alignItems: 'center', marginBottom: 24}}
+        >
+          <Paragraph style={styles.cancelText}>Cancel</Paragraph>
+        </TouchableOpacity>
+      </View>
+    );
+  };
 
   // Plan review removed — pipeline runs straight through
   // ── Render: Viral Processing state ──
@@ -2513,6 +2880,7 @@ export default function VideoEditorScreen({navigation}: any) {
           {editorState === 'editor' && renderEditor()}
           {/* AI Edit disabled for v1 launch */}
           {editorState === 'viral_processing' && renderViralProcessing()}
+          {editorState === 'creative_input' && renderCreativeInput()}
           {editorState === 'hook_selection' && renderHookSelection()}
           {editorState === 'text_review' && renderTextReview()}
           {editorState === 'viral_preview' && renderViralPreview()}
